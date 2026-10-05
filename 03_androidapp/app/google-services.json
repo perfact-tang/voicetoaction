@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "153532166169",
+    "project_id": "vibecodingjapan",
+    "storage_bucket": "vibecodingjapan.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:153532166169:android:e7f9f460b370b61076fa88",
+        "android_client_info": {
+          "package_name": "com.vibecodingjapan.ideavox"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "153532166169-l2jatmlkmj4ap51bsu9egtr3v55i0p35.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2FJUGXmCQ5Rh7Z2O5fLv0LirUFHZxHM0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "153532166169-l2jatmlkmj4ap51bsu9egtr3v55i0p35.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

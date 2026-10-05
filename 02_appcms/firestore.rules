@@ -1,0 +1,284 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed data model (collection `allalservice`)
+// ===============================================================
+//
+// /allalservice/{serviceId}
+//   userUid              string      owner, required, immutable
+//   nameZh/Ja/En/Ko      string ≤120  at least one language complete
+//   descriptionZh/Ja/En/Ko string ≤2000
+//   type                 string      'google_workspace_studio' | 'deepseek_harness'
+//   googleDriveUrl       string ≤2048 (google type only)
+//   applicationName      string ≤120  (--skill, deepseek type only)
+//   info                 string ≤2000 optional
+//   sort                 int 0..1000000 optional
+//   skillActiveVersion   int 0..999999 optional
+//                        version number currently in effect; 0 means none.
+//                        Always mirrors the four fields below.
+//   skillZipUrl          string ≤2048 (--installurl of the active version)
+//   skillStoragePath     string ≤1024 Storage object of the active version
+//   skillFileName        string ≤255  original .zip name of the active version
+//   skillFileSize        int ≤25MiB   byte size of the active version
+//   status               string      'active' | 'inactive'
+//   isDeleted            bool        soft delete flag
+//   createdAt/updatedAt  timestamp
+//   deletedAt            timestamp | null
+//
+// /allalservice/{serviceId}/skillVersions/{version}
+//   version        int       1..999999, equals the document ID
+//   zipUrl         string ≤2048 public Storage download URL
+//   storagePath    string ≤1024 'skills/{ownerUid}/…zip'
+//   fileName       string ≤255 ends with .zip
+//   fileSize       int        (0, 25MiB]
+//   createdAt      timestamp  set by the server on create
+//   userUid        string     owner, must equal request.auth.uid
+//   Version documents are immutable and deleted together with nothing else;
+//   the parent's skillActiveVersion decides which one is effective.
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isVipUser() {
+      return signedIn()
+        && get(/databases/$(database)/documents/userinfo/$(request.auth.uid)).data.usertype == 'vip';
+    }
+
+    function validText(value, maximum) {
+      return value is string && value.size() <= maximum;
+    }
+
+    function completeOrEmpty(name, description) {
+      return (name.size() == 0 && description.size() == 0)
+        || (name.size() > 0 && description.size() > 0);
+    }
+
+    function hasCompleteLanguage(data) {
+      return (data.nameZh.size() > 0 && data.descriptionZh.size() > 0)
+        || (data.nameJa.size() > 0 && data.descriptionJa.size() > 0)
+        || (data.nameEn.size() > 0 && data.descriptionEn.size() > 0)
+        || (data.nameKo.size() > 0 && data.descriptionKo.size() > 0);
+    }
+
+    // ---- Skill version control -------------------------------------------
+    // Ownership of a version document is derived from its parent service, so a
+    // version can never be attached to (or read from) someone else's service.
+    function serviceOwned(serviceId) {
+      return exists(/databases/$(database)/documents/allalservice/$(serviceId))
+        && owns(get(/databases/$(database)/documents/allalservice/$(serviceId)).data.userUid);
+    }
+
+    function validSkillVersionData(data) {
+      return data.keys().hasAll([
+          'version', 'zipUrl', 'storagePath', 'fileName', 'fileSize',
+          'createdAt', 'userUid'
+        ])
+        && data.keys().hasOnly([
+          'version', 'zipUrl', 'storagePath', 'fileName', 'fileSize',
+          'createdAt', 'userUid'
+        ])
+        && data.version is int && data.version >= 1 && data.version <= 999999
+        && data.zipUrl is string && data.zipUrl.size() <= 2048
+        && data.zipUrl.matches('https://firebasestorage[.]googleapis[.]com/.*')
+        && data.storagePath is string
+        && data.storagePath.size() > 0 && data.storagePath.size() <= 1024
+        // The object must live under the uploader's own skills/ folder and be a
+        // single `.zip` segment, exactly like storage.rules allows writes.
+        && data.storagePath.matches('^skills/' + request.auth.uid + '/[A-Za-z0-9._-]+[.]zip$')
+        && data.fileName is string
+        && data.fileName.size() > 0 && data.fileName.size() <= 255
+        && data.fileName.matches('.*[.]zip')
+        && data.fileSize is int && data.fileSize > 0 && data.fileSize <= 26214400
+        && data.createdAt is timestamp && data.createdAt == request.time
+        && data.userUid is string && data.userUid == request.auth.uid;
+    }
+
+    function validServiceData(data) {
+      // `info`, `sort` and the `skill*` fields are optional so that documents
+      // created before the skill-upload feature keep working with partial
+      // updates. When present they are validated strictly (see below).
+      return data.keys().hasAll([
+          'userUid',
+          'nameZh', 'nameJa', 'nameEn', 'nameKo',
+          'descriptionZh', 'descriptionJa', 'descriptionEn', 'descriptionKo',
+          'type', 'googleDriveUrl', 'applicationName',
+          'status', 'isDeleted',
+          'createdAt', 'updatedAt', 'deletedAt'
+        ])
+        && data.keys().hasOnly([
+          'userUid',
+          'nameZh', 'nameJa', 'nameEn', 'nameKo',
+          'descriptionZh', 'descriptionJa', 'descriptionEn', 'descriptionKo',
+          'type', 'googleDriveUrl', 'applicationName',
+          'info', 'sort',
+          'skillZipUrl', 'skillStoragePath', 'skillFileName', 'skillFileSize',
+          'skillActiveVersion',
+          'status', 'isDeleted',
+          'createdAt', 'updatedAt', 'deletedAt'
+        ])
+        && data.userUid is string
+        && validText(data.nameZh, 120)
+        && validText(data.nameJa, 120)
+        && validText(data.nameEn, 120)
+        && validText(data.nameKo, 120)
+        && validText(data.descriptionZh, 2000)
+        && validText(data.descriptionJa, 2000)
+        && validText(data.descriptionEn, 2000)
+        && validText(data.descriptionKo, 2000)
+        && completeOrEmpty(data.nameZh, data.descriptionZh)
+        && completeOrEmpty(data.nameJa, data.descriptionJa)
+        && completeOrEmpty(data.nameEn, data.descriptionEn)
+        && completeOrEmpty(data.nameKo, data.descriptionKo)
+        && hasCompleteLanguage(data)
+        && data.type in ['google_workspace_studio', 'deepseek_harness']
+        && validText(data.googleDriveUrl, 2048)
+        && validText(data.applicationName, 120)
+        && (
+          !data.keys().hasAny(['info'])
+          || (data.info is string && data.info.size() <= 2000)
+        )
+        && (
+          !data.keys().hasAny(['sort'])
+          || (data.sort is int && data.sort >= 0 && data.sort <= 1000000)
+        )
+        && (
+          (data.type == 'google_workspace_studio'
+            && data.googleDriveUrl.matches('https://drive[.]google[.]com/.*')
+            && data.applicationName.size() == 0)
+          || (data.type == 'deepseek_harness'
+            && data.applicationName.size() > 0
+            && data.googleDriveUrl.size() == 0)
+        )
+        // A skill package is optional, but when any skill field is present the
+        // whole group must be present and consistent with a Firebase Storage
+        // download produced by the management console upload flow.
+        && (
+          !data.keys().hasAny(['skillZipUrl', 'skillStoragePath', 'skillFileName', 'skillFileSize'])
+          || (data.skillZipUrl is string && data.skillZipUrl.size() <= 2048
+            && data.skillStoragePath is string && data.skillStoragePath.size() <= 1024
+            && data.skillFileName is string && data.skillFileName.size() <= 255
+            && data.skillFileSize is int
+            && data.skillFileSize >= 0
+            && data.skillFileSize <= 26214400
+            && (
+              (data.skillZipUrl.size() == 0
+                && data.skillStoragePath.size() == 0
+                && data.skillFileName.size() == 0
+                && data.skillFileSize == 0)
+              || (data.type == 'deepseek_harness'
+                && data.skillZipUrl.matches('https://firebasestorage[.]googleapis[.]com/.*')
+                && data.skillStoragePath.size() > 0
+                && data.skillFileName.size() > 0
+                && data.skillFileName.matches('.*[.]zip')
+                && data.skillFileSize > 0)
+            ))
+        )
+        // `skillActiveVersion` records which version document is in effect and
+        // must stay consistent with the mirrored skill* fields above: a non-zero
+        // pointer always comes with a usable download URL.
+        && (
+          !data.keys().hasAny(['skillActiveVersion'])
+          || (data.skillActiveVersion is int
+            && data.skillActiveVersion >= 0
+            && data.skillActiveVersion <= 999999
+            && (data.skillActiveVersion == 0
+              || (data.type == 'deepseek_harness'
+                && data.keys().hasAny(['skillZipUrl'])
+                && data.skillZipUrl.size() > 0)))
+        )
+        && data.status in ['active', 'inactive']
+        && data.isDeleted is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (data.deletedAt == null || data.deletedAt is timestamp)
+        && (
+          (!data.isDeleted && data.deletedAt == null)
+          || (data.isDeleted && data.status == 'inactive' && data.deletedAt is timestamp)
+        );
+    }
+
+    // Android app user-owned data. Keep these rules synchronized with 07_androidapp.
+    match /users/{uid} {
+      allow read, write: if owns(uid);
+
+      match /notes/{noteId} {
+        allow read, write: if owns(uid);
+      }
+
+      match /recordings/{recordingId} {
+        allow read, write: if owns(uid);
+      }
+
+      // App 上报的 FCM 设备令牌：后台任务（Google Doc / Skills）完成后由
+      // monitor 用 admin SDK 读取并推送通知。只有本人能读写自己的令牌。
+      match /fcmTokens/{token} {
+        allow read, write: if owns(uid);
+      }
+
+      match /aicalling/{aicallingId} {
+        allow read: if owns(uid);
+        allow write: if false;
+      }
+    }
+
+    match /userinfo/{uid} {
+      allow read: if owns(uid);
+      allow write: if false;
+    }
+
+    match /record/{docId} {
+      allow create: if isVipUser()
+        && request.resource.data.language in ['ja', 'zh', 'kr', 'en']
+        && request.resource.data.projectID == 'vibecodingjapan'
+        && request.resource.data.recordFile is string
+        && request.resource.data.recordFile.matches('gs://.*')
+        && request.resource.data.state == 'uploaded';
+      allow read, update, delete: if false;
+    }
+
+    match /allalservice/{serviceId} {
+      allow get, list: if owns(resource.data.userUid);
+
+      allow create: if owns(request.resource.data.userUid)
+        && validServiceData(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.isDeleted == false
+        && request.resource.data.deletedAt == null;
+
+      allow update: if owns(resource.data.userUid)
+        && request.resource.data.userUid == resource.data.userUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && validServiceData(request.resource.data);
+
+      // Deletion is a soft-delete update so that services can be restored.
+      allow delete: if false;
+
+      // Immutable per-version documents. The parent service decides ownership,
+      // which also blocks writing versions under a service that does not exist.
+      match /skillVersions/{versionId} {
+        allow read: if serviceOwned(serviceId);
+
+        allow create: if serviceOwned(serviceId)
+          && versionId.matches('^[1-9][0-9]{0,5}$')
+          && validSkillVersionData(request.resource.data);
+
+        // Versions are history: rewriting one would silently change what a
+        // previous version means. Delete and re-upload instead.
+        allow update: if false;
+
+        allow delete: if serviceOwned(serviceId);
+      }
+    }
+  }
+}

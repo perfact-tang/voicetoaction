@@ -1,0 +1,19 @@
+{
+  "name": "mediasplitter-ai",
+  "version": "0.5.0",
+  "private": true,
+  "description": "MediaSplitter AI Monitor: Firebase Admin (service account) auto-listening + faster-whisper + Google Docs pipeline.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "setup:faster-whisper": "node scripts/setup-python-backend.js requirements-faster-whisper.txt"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.5.0",
+    "googleapis": "^144.0.0"
+  }
+}

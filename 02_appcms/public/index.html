@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="AI Service 管理系统登录">
+    <meta name="theme-color" content="#07111f">
+    <title>登录 | AI Service 管理系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Noto+Sans+SC:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="assets/app.css" rel="stylesheet">
+    <script defer src="/__/firebase/8.10.0/firebase-app.js"></script>
+    <script defer src="/__/firebase/8.10.0/firebase-auth.js"></script>
+    <script defer src="/__/firebase/8.10.0/firebase-firestore.js"></script>
+    <script defer src="/__/firebase/init.js"></script>
+    <script defer src="assets/app.js?v=20260921-2"></script>
+  </head>
+  <body data-page="login">
+    <main class="page-shell">
+      <section id="auth-loading" class="flex min-h-screen items-center justify-center px-6" aria-live="polite">
+        <div class="text-center"><div class="mx-auto mb-5 h-8 w-8 animate-spin rounded-full border-2 border-gray-700 border-t-green-300"></div><p class="text-sm text-gray-400">正在确认登录状态…</p></div>
+      </section>
+      <section id="login-content" class="hidden min-h-screen px-5 py-8 sm:px-8 lg:px-12">
+        <div class="mx-auto flex min-h-screen max-w-7xl flex-col">
+          <header class="flex items-center gap-3">
+            <div class="brand-mark" aria-hidden="true"><svg width="25" height="25" viewBox="0 0 25 25" fill="none"><path d="M5 18.7 12.5 4 20 18.7" stroke="#82F7C4" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.2 14.1h8.6" stroke="#82F7C4" stroke-width="2.1" stroke-linecap="round"/></svg></div>
+            <div><p class="text-sm font-semibold tracking-wide">AI SERVICE</p><p class="text-xs text-gray-500">Management Console</p></div>
+          </header>
+          <div class="grid flex-1 items-center gap-12 py-12 lg:grid-cols-2 lg:gap-20">
+            <div class="max-w-xl">
+              <div class="mb-7 inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900 bg-opacity-60 px-3 py-1.5 text-xs font-medium text-gray-300"><span class="h-1.5 w-1.5 rounded-full bg-green-300"></span>Service access portal</div>
+              <h1 class="text-4xl font-semibold leading-tight tracking-tight sm:text-5xl lg:text-6xl">一个入口，管理你的<br><span style="color:var(--accent)">AI 服务。</span></h1>
+              <p class="mt-6 max-w-lg text-base leading-7 text-gray-400 sm:text-lg">登录后即可管理你的 Google Workspace Studio 与 DeepSeek Harness 服务。</p>
+              <div class="mt-10 grid max-w-lg gap-3 text-sm text-gray-400 sm:grid-cols-2"><div class="rounded-xl border border-gray-800 bg-gray-900 bg-opacity-30 px-4 py-3">✓ Firebase 安全认证</div><div class="rounded-xl border border-gray-800 bg-gray-900 bg-opacity-30 px-4 py-3">→ 个人服务集中管理</div></div>
+            </div>
+            <div class="glass-card mx-auto w-full max-w-md p-6 sm:p-9">
+              <div class="mb-8"><p class="mb-2 text-xs font-semibold uppercase tracking-widest text-green-300">Welcome back</p><h2 class="text-2xl font-semibold">登录管理系统</h2><p class="mt-2 text-sm text-gray-400">请输入你的注册邮箱和密码。</p></div>
+              <form id="login-form" novalidate>
+                <div><label class="field-label mb-2 block" for="email">邮箱地址</label><input class="text-field px-4 py-3.5 text-sm" id="email" type="email" inputmode="email" autocomplete="username" placeholder="name@example.com" aria-describedby="email-error"><p id="email-error" class="mt-2 hidden text-xs text-red-300"></p></div>
+                <div class="mt-5"><label class="field-label mb-2 block" for="password">密码</label><div class="relative"><input class="text-field py-3.5 pl-4 pr-12 text-sm" id="password" type="password" autocomplete="current-password" placeholder="请输入密码" aria-describedby="password-error"><button id="toggle-password" class="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-gray-400" type="button" aria-label="显示密码" aria-pressed="false"><svg id="eye-open" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg><svg id="eye-closed" class="hidden h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m3 3 18 18M6.2 6.2C3.8 7.8 2.5 12 2.5 12s3.5 6 9.5 6c1.4 0 2.7-.3 3.8-.8"/></svg></button></div><p id="password-error" class="mt-2 hidden text-xs text-red-300"></p></div>
+                <div id="auth-error" class="mt-5 hidden rounded-xl border border-red-400 border-opacity-20 bg-red-400 bg-opacity-10 px-4 py-3 text-sm text-red-200" role="alert"></div>
+                <button id="login-button" class="primary-button mt-7 flex w-full items-center justify-center gap-2 px-5 py-3.5 text-sm font-bold" type="submit"><span id="login-button-label">登录</span><span id="login-arrow">→</span><svg id="login-spinner" class="hidden h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"/><path class="opacity-75" fill="currentColor" d="M12 3a9 9 0 0 1 9 9h-3a6 6 0 0 0-6-6V3Z"/></svg></button>
+              </form>
+              <p class="mt-7 border-t border-gray-800 pt-6 text-center text-xs leading-5 text-gray-500">账号由系统管理员统一创建。如无法登录，请联系管理员。</p>
+            </div>
+          </div>
+          <footer class="flex justify-between border-t border-gray-800 py-5 text-xs text-gray-600"><p>&copy; <span id="current-year"></span> Vibe Coding Japan</p><p>Authorized users only</p></footer>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

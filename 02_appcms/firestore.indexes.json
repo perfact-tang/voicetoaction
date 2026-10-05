@@ -1,0 +1,173 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "createddate",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "likecount",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "userid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isVibeCodingpublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "key",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
+      "collectionGroup": "allalservice",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "updatedAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    }
+  ],
+  "fieldOverrides": []
+}

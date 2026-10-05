@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isVipUser() {
+      return signedIn()
+        && get(/databases/$(database)/documents/userinfo/$(request.auth.uid)).data.usertype == 'vip';
+    }
+
+    match /users/{uid} {
+      allow read, write: if owns(uid);
+
+      match /notes/{noteId} {
+        allow read, write: if owns(uid);
+      }
+
+      match /recordings/{recordingId} {
+        allow read, write: if owns(uid);
+      }
+
+      // FCM 设备令牌：后台任务完成后由 monitor（admin SDK）读取并推送通知。
+      match /fcmTokens/{token} {
+        allow read, write: if owns(uid);
+      }
+
+      // 旧版呼叫对象集合。App 已改为读取 /allalservice，这里保留只读以兼容回滚。
+      match /aicalling/{aicallingId} {
+        allow read: if owns(uid);
+        allow write: if false;
+      }
+    }
+
+    // 呼叫对象（部门 / AI 服务）来自 CMS 的 /allalservice，按 userUid 归属。
+    // App 只做 whereEqualTo("userUid", uid) 的读取，不写入。
+    match /allalservice/{serviceId} {
+      allow get, list: if owns(resource.data.userUid);
+      allow write: if false;
+    }
+
+    match /userinfo/{uid} {
+      allow read: if owns(uid);
+      allow write: if false;
+    }
+
+    match /record/{docId} {
+      allow create: if isVipUser()
+        && request.resource.data.language in ['ja', 'zh', 'kr', 'en']
+        && request.resource.data.projectID == 'vibecodingjapan'
+        && request.resource.data.recordFile is string
+        && request.resource.data.recordFile.matches('gs://.*')
+        && request.resource.data.state == 'uploaded';
+      allow read, update, delete: if false;
+    }
+  }
+}

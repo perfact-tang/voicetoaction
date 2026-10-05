@@ -1,0 +1,25 @@
+[Unit]
+Description=MediaSplitter AI Monitor (Firebase Admin auto-listening + faster-whisper)
+Documentation=file:/home/pengfei-mini/Documents/GitHub/mediaeditor/AUTOSTART_GUIDE.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 必须以「登录用户」运行，不能用 root：
+#   - dsh / aiskillsrunner 的凭据与 profile 存在 $HOME/.dsh（root 的 /root/.dsh 是空的），
+#     以 root 运行时 skill 无法执行；
+#   - monitor-data/ 下的运行时文件也应归用户所有。
+User=pengfei-mini
+Group=pengfei-mini
+Environment=HOME=/home/pengfei-mini
+WorkingDirectory=/home/pengfei-mini/Documents/GitHub/mediaeditor
+Environment=PATH=/home/pengfei-mini/.nvm/versions/node/v24.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/pengfei-mini/Documents/GitHub/mediaeditor/scripts/start-monitor.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

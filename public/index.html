@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MediaSplitter AI · Monitor 监视台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">MEDIASPLITTER <span>AI</span> <small>Monitor 监视台</small></div>
+      <div id="backendStatus" class="backend-status">正在检查后端…</div>
+    </header>
+
+    <main class="dashboard">
+      <section class="status-grid">
+        <div class="card">
+          <div class="card-head">
+            <p>FIREBASE ADMIN</p>
+            <h2>Firebase</h2>
+          </div>
+          <dl class="kv">
+            <div><dt>项目</dt><dd id="adminProject">-</dd></div>
+            <div><dt>监听状态</dt><dd id="adminStatus">-</dd></div>
+            <div><dt>用户字段</dt><dd id="userIdField">uid</dd></div>
+            <div><dt>监视用户</dt><dd id="userList" class="user-list">-</dd></div>
+          </dl>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <p>GOOGLE DRIVE</p>
+            <h2>文档输出</h2>
+          </div>
+          <dl class="kv">
+            <div><dt>授权账号</dt><dd id="driveAccount">-</dd></div>
+            <div><dt>输出文件夹</dt><dd id="driveFolder">-</dd></div>
+            <div><dt>转录模型</dt><dd id="whisperModel">-</dd></div>
+          </dl>
+          <button id="connectDriveBtn" class="primary" type="button">Connect Google（仅首次需要）</button>
+          <p id="driveHint" class="hint"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <p>QUEUE / HISTORY</p>
+          <h2>处理历史</h2>
+        </div>
+        <div id="statusLine" class="status-line">正在加载…</div>
+        <div id="jobList" class="job-list"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <p>LIVE LOG</p>
+          <h2>运行日志</h2>
+        </div>
+        <div id="logList" class="log-feed"></div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

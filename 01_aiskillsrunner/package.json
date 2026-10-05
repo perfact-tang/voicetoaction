@@ -1,0 +1,22 @@
+{
+  "name": "aiskillsrunner",
+  "version": "1.0.0",
+  "description": "CLI 工具：调用本机 DeepSeek Harness (dsh) 执行指定 skill 并输出报告结果",
+  "type": "module",
+  "bin": {
+    "aiskillsrunner": "./aiskillsrunner.js"
+  },
+  "files": [
+    "aiskillsrunner.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "cli",
+    "deepseek-harness",
+    "dsh",
+    "skill"
+  ],
+  "license": "MIT"
+}

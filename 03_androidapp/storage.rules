@@ -1,0 +1,29 @@
+rules_version = '2';
+
+// NOTE: Firebase Storage keeps one ruleset per bucket and this project shares its
+// default bucket with the AI Service management console. The canonical, superset
+// ruleset (Android `record/**` + CMS `skills/**`) lives in
+// 02_appcms/storage.rules — deploy from there. Deploying this file alone would
+// revoke public read on `skills/**` and break aiskillsrunner downloads.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isVipUser() {
+      return signedIn()
+        && firestore.get(/databases/(default)/documents/userinfo/$(request.auth.uid)).data.usertype == 'vip';
+    }
+
+    match /record/{uid}/{allPaths=**} {
+      allow read: if owns(uid);
+      allow write: if owns(uid) && isVipUser();
+    }
+  }
+}

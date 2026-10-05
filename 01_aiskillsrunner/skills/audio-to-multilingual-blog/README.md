@@ -4,7 +4,9 @@
 **语音转文字（STT / Fast Whisper）原始文本**，处理成日 / 中 / 英三语博客文章并自动上传到
 VibeCoding Japan 博客。
 
-- 处理步骤来自仓库的 `01_音声から原稿へ変換/step1.md` ~ `step4.md`（原样保存在 `references/`）。
+- 先审阅录音素材、按论证逻辑重组并写成中文博客，审定后分别翻译为日文和英文。
+- 保留核心观点与关键事实，合并重复、去掉无关岔题；通过因果、案例和取舍写出深度，不靠凑字数。
+- 中文俚语与网络用语按语境翻成目标语言贴切的表达，保留原意、态度和语气。
 - 生成的文件正好是 [`vibecodingjapan-upblog`](https://github.com/) 所需的 4 个输入。
 - 临时目录按 **DocID** 组织：`~/Documents/tmpaiskill/<DocID>/`。
 - 最后**只调用 1 次** `vibecodingjapan-upblog` 完成上传。
@@ -13,11 +15,11 @@ VibeCoding Japan 博客。
 
 ```
 audio-to-multilingual-blog/
-├── SKILL.md                       # skill 指令（含 Step1〜Step4 的完整提示词）
-├── references/                    # 原始 step 文件，作为提示词的 source of truth
-│   ├── step1.md                   # STT → 简体中文精炼原稿
-│   ├── step2.md                   # → 母语级日文
-│   ├── step3.md                   # → 母语级英文
+├── SKILL.md                       # 流程、参考指引及上传规范
+├── references/                    # 各步骤的写作与翻译规范
+│   ├── step1.md                   # 审阅 STT → 重组 → 中文写作与定稿
+│   ├── step2.md                   # 中文定稿 → 日文翻译与审校
+│   ├── step3.md                   # 中文定稿 → 英文翻译与审校
 │   └── step4.md                   # → 3 语言 blogtitle / blogsummary / blogseo
 ├── examples/
 │   └── stt-sample.txt             # 带口语杂讯的示例 STT 文本
@@ -152,5 +154,5 @@ bash scripts/upload-blog.sh 1758000000000
   `mindmapurl` 为空，因此博客卡片会显示渐变占位图。需要封面时，可在 `/editblog/<DocID>`
   用 MindMap 重新生成并保存。
 - **`blogseo` 必须用半角逗号 `,`**，不能用全角「，」。
-- Step1〜Step4 的原始提示词保存在 `references/`，`SKILL.md` 里是内联副本；
-  修改措辞时请两边同步。
+- 中文写作与翻译的详细规范在 `references/step1.md`〜`step3.md`，`SKILL.md` 按步骤要求读取，避免维护重复提示词。
+- 中文定稿发生实质修改时，必须同步日文、英文及三语元信息后再上传。

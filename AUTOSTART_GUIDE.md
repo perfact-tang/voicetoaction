@@ -1,4 +1,4 @@
-# MediaSplitter AI Monitor — Ubuntu 开机自启指南
+# VoiceToAction AI Monitor — Ubuntu 开机自启指南
 
 > 目标：**开机后无需手动操作，Monitor 自动运行**（Firebase Admin 自动监听 → faster-whisper 转录 → Google Doc）。
 > Web 页面（http://localhost:15888）只是监视仪表盘，开不开都不影响后台。
@@ -80,7 +80,7 @@ sudo systemctl daemon-reload
 ```ini
 [Desktop Entry]
 Type=Application
-Name=MediaSplitter AI Monitor
+Name=VoiceToAction AI Monitor
 Exec=/home/pengfei-mini/Documents/GitHub/mediaeditor/scripts/start-monitor.sh
 Terminal=false
 X-GNOME-Autostart-enabled=true

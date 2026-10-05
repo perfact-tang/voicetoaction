@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  MediaSplitter AI — Ubuntu 一键安装并启动脚本
+#  VoiceToAction AI — Ubuntu 一键安装并启动脚本
 #
 #  用法：
 #    ./run-ubuntu.sh            # 安装依赖并启动（可重复执行，已装好的会跳过）

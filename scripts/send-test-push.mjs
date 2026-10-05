@@ -27,7 +27,7 @@ try {
 
 const uid = (process.argv[2] || String(process.env.MONITOR_USER_IDS || "").split(",")[0] || "").trim();
 const title = process.argv[3] || "测试推送";
-const body = process.argv[4] || `MediaSplitter AI 测试通知（${new Date().toLocaleTimeString()}）`;
+const body = process.argv[4] || `VoiceToAction AI 测试通知（${new Date().toLocaleTimeString()}）`;
 
 if (!uid) {
   console.error("用法: node scripts/send-test-push.mjs <uid> [标题] [正文]");

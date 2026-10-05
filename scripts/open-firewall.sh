@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  MediaSplitter AI Monitor — 开放防火墙端口（局域网访问）
+#  VoiceToAction AI Monitor — 开放防火墙端口（局域网访问）
 #
 #  用法（需要 sudo，仅首次执行一次）：
 #    sudo ./scripts/open-firewall.sh

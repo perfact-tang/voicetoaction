@@ -1,4 +1,4 @@
-# MediaSplitter AI — Ubuntu 运行指南（Monitor · Firebase Admin 自动监听版）
+# VoiceToAction AI — Ubuntu 运行指南（Monitor · Firebase Admin 自动监听版）
 
 > 本项目是**声音监控程序**：Node 服务启动即用 **Firebase Admin（服务账号）** 自动监听 Firestore
 > `recordings` 集合，只处理 **`.env` 中 `MONITOR_USER_IDS`** 指定的用户的录音，自动完成
@@ -78,7 +78,7 @@ Firebase Admin: ready (project vibecodingjapan)
 监视用户: uid1, uid2 | 用户字段: uid
 Drive: tan@example.com | 模型: faster:small
 ================================================
-MediaSplitter AI Monitor 起動しました。
+VoiceToAction AI Monitor 起動しました。
 IPアドレスは 192.168.0.161 です。          ← 局域网 IP（自动检测）
 ポート番号は 15888 です。                 ← 端口
 Web ページ: http://192.168.0.161:15888

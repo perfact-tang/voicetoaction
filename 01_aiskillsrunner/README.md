@@ -101,7 +101,7 @@ aiskillsrunner --skill audio-to-multilingual-blog --reffilepath ./stt.txt \
 5. `dsh` 执行结束后，将处理后的最终结果（报告）打印到标准输出；退出码与 `dsh` 一致（成功为 0）。
 
 > `--force-install` 只影响 `AISKILLSRUNNER_SKILLS_DIR` 指向的安装目录，不会动
-> 全局 `~/.agents/skills` 里的同名 skill。MediaSplitter AI 后端就是用它来做
+> 全局 `~/.agents/skills` 里的同名 skill。VoiceToAction AI 后端就是用它来做
 > 「CMS 版本变了 → 删掉本地旧版本 → 重新下载安装」的。
 
 ## Skills 安装说明

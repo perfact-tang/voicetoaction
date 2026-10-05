@@ -118,7 +118,7 @@ async function startDriveAuth() {
       const email = user.data.email || "Connected Google account";
       send({ type: "event", event: "drive_authorized", payload: { email } });
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end("<!doctype html><title>Connected</title><h1>Google Drive connected.</h1><p>You can return to MediaSplitter AI.</p>");
+      res.end("<!doctype html><title>Connected</title><h1>Google Drive connected.</h1><p>You can return to VoiceToAction AI.</p>");
     } catch (error) {
       send({ type: "event", event: "sidecar_error", payload: { error: error instanceof Error ? error.message : String(error) } });
       res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });

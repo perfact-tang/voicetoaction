@@ -1,5 +1,5 @@
 [Unit]
-Description=MediaSplitter AI Monitor (Firebase Admin auto-listening + faster-whisper)
+Description=VoiceToAction AI Monitor (Firebase Admin auto-listening + faster-whisper)
 Documentation=file:/home/pengfei-mini/Documents/GitHub/mediaeditor/AUTOSTART_GUIDE.md
 After=network-online.target
 Wants=network-online.target

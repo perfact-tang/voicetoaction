@@ -1,4 +1,4 @@
-# MediaSplitter AI — Monitor 监控程序（Firebase Admin 自动监听）
+# VoiceToAction AI — Monitor 监控程序（Firebase Admin 自动监听）
 
 纯 Node.js 服务。**node server.js 就是"声音监控程序"本体**：启动即自动监听 Firestore，处理录音并生成 Google Doc；**Web 页面只是监视仪表盘**，开不开都不影响后台运行。
 

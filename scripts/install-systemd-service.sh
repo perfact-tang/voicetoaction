@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  MediaSplitter AI Monitor — systemd 服务安装脚本
+#  VoiceToAction AI Monitor — systemd 服务安装脚本
 #
 #  用法（需要 sudo，仅首次执行一次）：
 #    sudo ./scripts/install-systemd-service.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  MediaSplitter AI Monitor — 语音播报局域网 IP 与端口
+#  VoiceToAction AI Monitor — 语音播报局域网 IP 与端口
 #
 #  用途：
 #   - GNOME 登录自启（登录后音频就绪，能真正听到）
@@ -55,7 +55,7 @@ ip_words="${ip_words% dot }"
 port_words="$(digits_to_words "$PORT")"
 
 echo "================================================"
-echo "MediaSplitter AI Monitor"
+echo "VoiceToAction AI Monitor"
 echo "IP: $IP | Port: $PORT"
 echo "URL: http://$IP:$PORT"
 echo "================================================"

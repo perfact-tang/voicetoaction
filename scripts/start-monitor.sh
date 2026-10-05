@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  MediaSplitter AI Monitor — 幂等启动脚本
+#  VoiceToAction AI Monitor — 幂等启动脚本
 #
 #  供 systemd / GNOME 自启 / cron 调用。已运行则直接退出，
 #  避免重复启动导致端口冲突。
@@ -27,17 +27,17 @@ alive() {
 }
 
 if alive "$(cat "$PIDFILE" 2>/dev/null)"; then
-  echo "MediaSplitter Monitor 已在运行 (pid $(cat "$PIDFILE"))，跳过启动。"
+  echo "VoiceToAction Monitor 已在运行 (pid $(cat "$PIDFILE"))，跳过启动。"
   exit 0
 fi
 
 # 二次保险：健康检查通过说明已有实例在跑（例如手动启动、未写 pidfile）
 if curl -sf -m 2 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
-  echo "MediaSplitter Monitor 已在运行（端口 ${PORT} 健康检查通过），跳过启动。"
+  echo "VoiceToAction Monitor 已在运行（端口 ${PORT} 健康检查通过），跳过启动。"
   exit 0
 fi
 
-echo "启动 MediaSplitter Monitor..."
+echo "启动 VoiceToAction Monitor..."
 cd "$ROOT"
 
 cleanup() {

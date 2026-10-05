@@ -1,4 +1,4 @@
-/* MediaSplitter AI Monitor — 只读监视仪表盘
+/* VoiceToAction AI Monitor — 只读监视仪表盘
  *
  * 后台（node server.js）是"声音监控程序"本体：Firebase Admin 自动监听 Firestore
  * recordings 集合（只处理 .env 中 MONITOR_USER_IDS 指定的用户），自动下载、转录、

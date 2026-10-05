@@ -148,7 +148,7 @@ function announceStartup() {
   const ip = lanIpv4();
   const lines = [
     "================================================",
-    "MediaSplitter AI Monitor 起動しました。",
+    "VoiceToAction AI Monitor 起動しました。",
     `IPアドレスは ${ip} です。`,
     `ポート番号は ${port} です。`,
     `Web ページ: http://${ip}:${port}  （同一 LAN 内の他の PC からも開けます）`,

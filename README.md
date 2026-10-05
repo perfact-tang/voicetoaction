@@ -11,7 +11,12 @@
 服务启动 → Firebase Admin（服务账号）连接
         → 自动监听 Firestore collectionGroup("recordings")
         → 只处理 .env 中 MONITOR_USER_IDS 指定的用户（文档字段 MONITOR_USER_ID_FIELD）的录音
-        → 下载 GCS 音频（gs://）→ FFmpeg 转 16k wav → faster-whisper 转录
+        → 下载 storageUri（gs://）
+        →
+        ├─ kind = "Markdown"（storageUri 是文本 md 文件，不是录音）
+        │    → 跳过 FFmpeg / STT，直接读取 md 文本 → 继续下面的 Action 处理
+        └─ 其他 kind（录音）
+             → FFmpeg 转 16k wav → faster-whisper 转录
         →
         ├─ serviceType = google_workspace_studio（默认，兼容旧的 aicalling 记录）
         │    → sidecar 创建 Google Doc（Drive OAuth）→ 回写 googleDocUrl
@@ -28,6 +33,18 @@
         → FCM 推送通知到 App（「○○ 执行完毕」/「○○ 执行失败」）
         → Web 页面（SSE）实时显示：后台状态 / 处理历史 / 运行日志
 ```
+
+### 输入类型：`kind`（录音 / Markdown 文本）
+
+`users/{uid}/recordings/{id}` 的 `kind` 字段决定 `storageUri` 指向什么：
+
+| `kind` | `storageUri` 指向 | 后端行为 |
+| :--- | :--- | :--- |
+| `Markdown`（也兼容 `MARKDOWN` / `md` / `text/markdown`） | 一份 UTF-8 Markdown 文本文件 | **不做 STT**：下载后直接读取文本，进入后续 Action 处理（Google Doc 或 Skill），任务阶段显示 `reading_text` |
+| 其他（`ORIGINAL` / `MERGED` 等） | 录音文件 | FFmpeg 转 16k wav → faster-whisper 转录 |
+
+两种情况之后的处理完全一致，Markdown 输入同样会生成 Google Doc / 执行 Skill 并回写 `state: success`。
+
 
 ## 架构
 

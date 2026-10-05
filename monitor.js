@@ -42,16 +42,22 @@ const transcribeScript = join(projectRoot, "scripts", "faster_whisper_transcribe
 const modelDir = join(projectRoot, "models", "faster-whisper");
 
 const FASTER_MODELS = ["tiny", "base", "small", "medium", "large-v3", "distil-large-v3"];
+/**
+ * Firestore 文档字段 kind 取该值时，storageUri 指向的是一份 Markdown 文本文件
+ * （而不是录音）：跳过 FFmpeg / STT，直接把文本交给后续 Action 处理。
+ */
+const MARKDOWN_KIND = "markdown";
 const ACTIVE_STAGES = [
   "queued",
   "downloading",
+  "reading_text",
   "transcribing",
   "creating_doc",
   "updating_firestore",
   "installing_skill",
   "running_skill"
 ];
-const RUNNING_STAGES = ["transcribing", "creating_doc", "installing_skill", "running_skill"];
+const RUNNING_STAGES = ["reading_text", "transcribing", "creating_doc", "installing_skill", "running_skill"];
 const MAX_LOGS = 200;
 /** 单条 skill 输出回写 Firestore 的最大长度，避免文档超过 1MB。 */
 const MAX_SKILL_OUTPUT_CHARS = 30000;
@@ -114,6 +120,19 @@ function normalizeWhisperModel(value) {
 
 function isGsUrl(value) {
   return /^gs:\/\/[^/]+\/.+/.test(String(value || "").trim());
+}
+
+/**
+ * 该任务的 storageUri 是否指向 Markdown 文本（Firestore 字段 kind === "Markdown"）。
+ * 兼容大小写与常见写法（markdown / MARKDOWN / md / text/markdown）。
+ */
+function isMarkdownKind(value) {
+  const kind = String(value || "").trim().toLowerCase();
+  return kind === MARKDOWN_KIND || kind === "md" || kind === "text/markdown";
+}
+
+function isMarkdownJob(job) {
+  return isMarkdownKind(job && job.kind);
 }
 
 /** Skills 执行超时（毫秒），非法值回退 30 分钟；下限 10 秒。 */
@@ -307,6 +326,8 @@ function startListener() {
             documentPath: path,
             documentId: change.doc.id,
             recordFile,
+            // kind === "Markdown" 时 recordFile 是 md 文本文件，后续跳过 STT。
+            kind: data.kind || "",
             projectId: data.projectID || state.config.projectId,
             language: data.language || "",
             aicallingid: data.aicallingid || null,
@@ -356,6 +377,7 @@ function enqueueRecord(record) {
           documentPath: record.documentPath,
           documentId: record.documentId,
           recordFile: record.recordFile,
+          kind: record.kind || "",
           projectId: record.projectId,
           language: record.language,
           userId: record.userId,
@@ -374,6 +396,7 @@ function enqueueRecord(record) {
         documentPath: record.documentPath,
         documentId: record.documentId,
         recordFile: record.recordFile,
+        kind: record.kind || "",
         projectId: record.projectId,
         language: record.language,
         userId: record.userId,
@@ -665,22 +688,16 @@ async function processJob(job) {
     return `Download failed: ${error.message}`;
   }
 
+  const markdown = isMarkdownJob(job);
   updateJob(job.id, (entry) => {
-    entry.stage = "transcribing";
+    entry.stage = markdown ? "reading_text" : "transcribing";
     entry.progress = 45;
   });
   let transcript;
   try {
-    const wavPath = localPath.replace(/\.[^/.]+$/, "") + ".whisper.wav";
-    convertToWav(localPath, wavPath);
-    transcript = await transcribeWithFasterWhisper({
-      audioPath: wavPath,
-      language: normalizeLanguage(job.language),
-      model: state.config.whisperModel
-    });
-    rmSync(wavPath, { force: true });
+    transcript = await extractJobText(job, localPath);
   } catch (error) {
-    return `Transcription failed: ${error.message}`;
+    return `${markdown ? "Read markdown" : "Transcription"} failed: ${error.message}`;
   }
 
   updateJob(job.id, (entry) => {
@@ -776,22 +793,16 @@ async function processSkillJob(job) {
     return `Download failed: ${error.message}`;
   }
 
+  const markdown = isMarkdownJob(job);
   updateJob(job.id, (entry) => {
-    entry.stage = "transcribing";
+    entry.stage = markdown ? "reading_text" : "transcribing";
     entry.progress = 30;
   });
   let transcript;
   try {
-    const wavPath = localPath.replace(/\.[^/.]+$/, "") + ".whisper.wav";
-    convertToWav(localPath, wavPath);
-    transcript = await transcribeWithFasterWhisper({
-      audioPath: wavPath,
-      language: normalizeLanguage(job.language),
-      model: state.config.whisperModel
-    });
-    rmSync(wavPath, { force: true });
+    transcript = await extractJobText(job, localPath);
   } catch (error) {
-    return `Transcription failed: ${error.message}`;
+    return `${markdown ? "Read markdown" : "Transcription"} failed: ${error.message}`;
   }
   // 音频用完即删；STT 文本按 Skills 流程要求留在本机
   rmSync(localPath, { force: true });
@@ -943,6 +954,31 @@ async function processSkillJob(job) {
 }
 
 /* ---------------- FFmpeg + 转录 ---------------- */
+
+/**
+ * 取得流水线要处理的文本：
+ *  - kind === "Markdown"：本地文件就是 UTF-8 文本（md），直接读取，完全不做 FFmpeg / STT；
+ *  - 其他：按音频处理（FFmpeg 转 16k wav → faster-whisper 转录）。
+ * 失败时抛错，由调用方按各自流程返回失败原因。
+ */
+async function extractJobText(job, localPath) {
+  if (isMarkdownJob(job)) {
+    const text = readFileSync(localPath, "utf8").replace(/^\uFEFF/, "");
+    log(`Markdown 输入（kind=${job.kind}）：跳过 STT，直接使用文本（${text.length} 字符）`);
+    return text;
+  }
+  const wavPath = localPath.replace(/\.[^/.]+$/, "") + ".whisper.wav";
+  try {
+    convertToWav(localPath, wavPath);
+    return await transcribeWithFasterWhisper({
+      audioPath: wavPath,
+      language: normalizeLanguage(job.language),
+      model: state.config.whisperModel
+    });
+  } finally {
+    rmSync(wavPath, { force: true });
+  }
+}
 
 function convertToWav(sourcePath, outputPath) {
   execFileSync(

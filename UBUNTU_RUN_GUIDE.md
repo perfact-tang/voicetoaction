@@ -57,7 +57,7 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
 nvm install 22 && nvm use 22
 
 # 2) 项目依赖 + 配置
-cd /path/to/mediaeditor
+cd /path/to/voicetoaction
 npm install
 cp .env.example .env   # 编辑填入键值
 

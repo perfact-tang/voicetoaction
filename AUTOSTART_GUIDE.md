@@ -35,6 +35,12 @@ sudo ./scripts/install-systemd-service.sh
 2. 把 `monitor-data/` 的属主改成该用户（之前若以 root 跑过，里面会有 root 属主的文件）
 3. `systemctl daemon-reload && systemctl enable && systemctl restart`
 
+> ⚠️ **仓库改名或移动到别的路径后，必须重新执行一次 A.1 的安装命令。**
+> systemd 单元里保存的是**绝对路径**（`WorkingDirectory` / `ExecStart`），不会跟着文件夹改名走。
+> 不改的表现：`systemctl status` 显示 `activating (auto-restart)`、`status=203/EXEC`（找不到 `start-monitor.sh`），
+> 每 5 秒重启一次，开机自启失效（但手动跑着的实例仍在工作，所以不易察觉）。
+> 自查：`systemctl cat mediasplitter-monitor | grep -E "WorkingDirectory|ExecStart"` 是否指向当前目录。
+
 > ⚠️ **服务必须以登录用户运行，不能用 root。**
 > `dsh` / `aiskillsrunner` 的凭据和 profile（`~/.dsh/profiles/headless` 等）都在用户 home 下，
 > root 的 `/root/.dsh` 是空的 —— 以 root 运行时 Skills 流程（`deepseek_harness`）无法执行。

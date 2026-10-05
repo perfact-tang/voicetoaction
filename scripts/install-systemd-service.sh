@@ -33,12 +33,21 @@ if [[ -z "$RUN_HOME" ]]; then
   exit 1
 fi
 
-# 把单元文件里的项目路径与运行用户替换为实际值（防止仓库被移动 / 换用户后失效）
-sed -e "s|/home/pengfei-mini/Documents/GitHub/mediaeditor|$ROOT|g" \
+# 把单元文件里的项目路径与运行用户替换为实际值（防止仓库被移动 / 改名 / 换用户后失效）：
+#   - @PROJECT_ROOT@ 是当前模板的占位符；
+#   - 旧路径的替换保留，用于兼容尚未更新占位符的历史版本。
+sed -e "s|@PROJECT_ROOT@|$ROOT|g" \
+    -e "s|/home/pengfei-mini/Documents/GitHub/mediaeditor|$ROOT|g" \
     -e "s|^User=pengfei-mini$|User=$RUN_USER|" \
     -e "s|^Group=pengfei-mini$|Group=$RUN_GROUP|" \
     -e "s|^Environment=HOME=/home/pengfei-mini$|Environment=HOME=$RUN_HOME|" \
     "$SRC" > "$DEST"
+
+# 兜底：模板若残留未替换的占位符，直接报错而不是装上坏单元
+if grep -q "@PROJECT_ROOT@" "$DEST"; then
+  echo "错误：$DEST 中仍有未替换的 @PROJECT_ROOT@ 占位符" >&2
+  exit 1
+fi
 
 # 之前若以 root 运行过，monitor-data 下会有 root 属主的文件，会导致新用户写不进去
 if [[ -d "$ROOT/monitor-data" ]]; then

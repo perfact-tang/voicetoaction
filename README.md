@@ -229,3 +229,10 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 - 监听只处理**新出现的**录音记录（跳过首次快照的存量文档与 `state: success` 记录）。
 - 服务进程就是监控程序：`nohup ./run-ubuntu.sh &` 或 systemd 可后台常驻；页面只是查看器。
 - 模型下载慢（国内网络）：`export HF_ENDPOINT=https://hf-mirror.com` 后重跑脚本。
+
+
+## Ubuntu下监控命令
+
+```
+journalctl -u mediasplitter-monitor -f
+```

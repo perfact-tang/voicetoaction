@@ -190,6 +190,10 @@ const monitorConfig = {
   sttOutputDir: process.env.STT_OUTPUT_DIR || join(root, "monitor-data", "stt"),
   dshPermissionMode:
     process.env.SKILLS_DSH_PERMISSION_MODE || process.env.DSH_PERMISSION_MODE || "danger-full-access",
+  // skill 退出码为 0 时是否再校验产物（默认开；设 false 可退回「只看退出码」的旧行为）
+  verifySkillUpload: process.env.SKILL_VERIFY_UPLOAD !== "false",
+  // 需要做产物校验的 skill 名单（逗号分隔；未设置 = 用 monitor.js 的默认值；* = 全部）
+  verifySkillNames: process.env.SKILL_VERIFY_NAMES || null,
   // ---- FCM 推送 ----
   fcmEnabled: process.env.FCM_ENABLED !== "false"
 };

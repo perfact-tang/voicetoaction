@@ -171,6 +171,32 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 > 因此权限模式用的是 **`SKILLS_DSH_PERMISSION_MODE`**（后端再以环境变量 `DSH_PERMISSION_MODE` 传给 dsh），
 > dsh 可执行文件用 **`SKILLS_DSH_BIN`**。后端启动时会自动扫描 `.env` 并对这类键名告警。
 
+### 「任务显示 success，但 Blog 上没有文章」
+
+这是**假成功**，典型症状与排查顺序：
+
+| 现象 | 含义 |
+|---|---|
+| 录音文档 `state = success`，本地 job `stage = success` | 后端只看 `aiskillsrunner` 退出码 |
+| `skillOutput` 里是半成品话术（如「waiting on the Japanese translation…」） | skill 的回合**提前结束**了 |
+| `~/Documents/tmpaiskill/<DocID>/` 缺文件（常见缺 `日文.md`） | 上传步骤（Step8）根本没跑到 |
+| Firestore `mkblog/<DocID>` 不存在、`vibecodingjapanblog/siteinfo.lastblogtimestamp` 没更新 | 文章确实没发布 |
+
+原因：`aiskillsrunner` 用 `dsh --profile headless`，是**单回合**语义 —— agent 一旦结束回合，
+进程立即退出，仍在运行的后台子代理（翻译）会被一并杀掉，**退出码却仍是 0**。
+
+两道防线（都已内置）：
+
+1. **skill 侧**：`SKILL.md` 第 1.5 节要求翻译在本回合内同步完成，且最终报告最后一行必须输出
+   `SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>`。
+2. **后端侧**：退出码为 0 后再做产物校验（`SKILL_VERIFY_UPLOAD`，默认开）——
+   从 skill 输出取 DocID（取不到就按输出目录 mtime 兜底，且要求 4 个文件齐全），
+   再查 `mkblog/<DocID>` 是否存在；不存在就记 `failed`（启动自愈会重试，不会再假成功）。
+   校验名单默认只含 `audio-to-multilingual-blog`，用 `SKILL_VERIFY_NAMES` 调整。
+
+人工补做已产出的半成品：补上缺失文件 → 自检 4 文件 → 调用一次
+`bash monitor-data/skills/audio-to-multilingual-blog/scripts/upload-blog.sh <DocID>`。
+
 ## 消息推送（FCM）
 
 任务结束后（成功或失败）后端都会推送一条通知，例如「audio-to-multilingual-blog 执行完毕」。

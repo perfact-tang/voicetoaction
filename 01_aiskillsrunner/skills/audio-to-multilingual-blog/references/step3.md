@@ -10,3 +10,8 @@
 - Read the translation independently for naturalness, then compare it section by section with the Chinese manuscript. Correct omissions, additions, changes in stance or certainty, and errors in negation or conditions. Review slang for both meaning and register.
 
 Write only the reviewed article to `英文.md`, with no preamble or translator commentary.
+
+> ⚠️ 执行方式（单回合，见 SKILL.md 第 1.5 节）：本步骤必须**在本回合内同步完成**。
+> 不要把翻译派给 `run_in_background: true` 的后台子代理，也不要「等通知再继续」——
+> headless 下单回合结束＝进程退出，未完成的子代理会被杀掉，文件不会落盘，后续上传也就不会发生。
+

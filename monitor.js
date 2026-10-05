@@ -14,7 +14,8 @@
 import admin from "firebase-admin";
 import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -33,6 +34,17 @@ const dataDir = join(projectRoot, "monitor-data");
 const defaultSkillsDir = join(dataDir, "skills");
 /** Skills 流程的本地 STT 文本目录。 */
 const sttDir = join(dataDir, "stt");
+/** 产物校验：博客文章所在的 Firestore 集合（可用 BLOG_COLLECTION 覆盖）。 */
+const blogCollection = process.env.BLOG_COLLECTION || "mkblog";
+/**
+ * 产物校验：skill 的临时输出根目录（`~/Documents/tmpaiskill/<DocID>/`）。
+ * 与 skill 里的 AISKILLS_BLOG_TMPDIR 约定保持一致。
+ */
+const skillTmpRoot = process.env.AISKILLS_BLOG_TMPDIR || join(homedir(), "Documents", "tmpaiskill");
+/** 默认做产物校验的 skill（SKILL_VERIFY_NAMES 未设置时用；设为 * 表示对所有 skill 生效）。 */
+const DEFAULT_VERIFY_SKILL_NAMES = ["audio-to-multilingual-blog"];
+/** 判定「输出目录已完成」所需的 4 个文件（与 audio-to-multilingual-blog 的约定一致）。 */
+const SKILL_OUTPUT_FILES = ["中文.md", "日文.md", "英文.md", "文章信息.json"];
 const jobsPath = join(dataDir, "jobs.json");
 const statePath = join(dataDir, "state.json");
 const driveTokenPath = join(dataDir, "drive", "oauth-token.json");
@@ -141,6 +153,12 @@ function normalizeSkillsTimeout(value) {
   return Number.isFinite(parsed) && parsed >= 10_000 ? Math.trunc(parsed) : 30 * 60 * 1000;
 }
 
+/** 「a,b」/ 数组 → 去空去重的字符串数组（产物校验的 skill 名单用）。 */
+function normalizeSkillNameList(value) {
+  const items = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(items.map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
 function parseGsUrl(value) {
   const match = String(value || "").match(/^gs:\/\/([^/]+)\/(.+)$/);
   if (!match) throw new Error(`recordFile 必须是 gs:// URL: ${value}`);
@@ -179,6 +197,10 @@ const state = {
     skillsRunnerTimeoutMs: 30 * 60 * 1000,
     sttOutputDir: sttDir,
     dshPermissionMode: "danger-full-access",
+    /** skill 退出码为 0 时，是否再校验产物（见 verifySkillUpload）。 */
+    verifySkillUpload: true,
+    /** 需要做产物校验的 skill 名单（默认见 DEFAULT_VERIFY_SKILL_NAMES）。 */
+    verifySkillNames: [...DEFAULT_VERIFY_SKILL_NAMES],
     // ---- FCM 推送 ----
     fcmEnabled: true
   },
@@ -555,6 +577,9 @@ async function updateFirestoreSuccess(job, fields = {}) {
   if (fields.skillName !== undefined) payload.skillName = fields.skillName;
   if (fields.skillVersion !== undefined) payload.skillVersion = fields.skillVersion;
   if (fields.skillOutput !== undefined) payload.skillOutput = fields.skillOutput;
+  // 产物校验结果（见 verifySkillUpload）：确认 mkblog 里真的存在这篇文章
+  if (fields.skillUploadVerified !== undefined) payload.skillUploadVerified = fields.skillUploadVerified;
+  if (fields.blogDocId !== undefined) payload.blogDocId = fields.blogDocId;
   if (fields.sttTextPath !== undefined) payload.sttTextPath = fields.sttTextPath;
   if (fields.sttTextUrl !== undefined) payload.sttTextUrl = fields.sttTextUrl;
   if (fields.sttTextLocalPath !== undefined) payload.sttTextLocalPath = fields.sttTextLocalPath;
@@ -597,6 +622,129 @@ async function notifyJobResult(job, { ok, body }) {
   } catch (error) {
     log(`推送失败：${error.message}`);
   }
+}
+
+/* ---------------- Skills 产物校验 ---------------- */
+
+/**
+ * 只凭 exit code 判定 skill 成功会漏掉一类真实故障：
+ * headless（`dsh --profile headless`）是**单回合**语义 —— agent 一旦结束回合，
+ * 进程立即退出，仍在运行的后台子代理会被一并杀掉；上传步骤（Step8）根本没跑到，
+ * 退出码却依然是 0。历史上这会把「只写完 中文.md / 英文.md」的半成品记成 success，
+ * 既回写假成功、又推「执行完毕」通知，而且启动自愈只重试 failed，永远不会补做。
+ *
+ * 这里的独立校验：从 skill 输出里找出 DocID（退化为按 mtime 找刚写出的输出目录），
+ * 再确认 Firestore 里确实存在该文章；校验不过就按失败处理。
+ */
+const DOCID_PATTERNS = [
+  /tmpaiskill[\\/]+(\d{10,})/g,
+  /\/blog\/(\d{10,})/g,
+  /\/editblog\/(\d{10,})/g,
+  /\bdocid\b[^\d\n]{0,24}?(\d{10,})/gi
+];
+
+/** 从 skill 输出文本里提取 DocID 候选（Unix 毫秒，10 位以上）。 */
+function extractDocIds(text) {
+  const ids = new Set();
+  const source = String(text || "");
+  for (const pattern of DOCID_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(source)) !== null) ids.add(match[1]);
+  }
+  return [...ids];
+}
+
+/** 输出目录是否已包含全部 4 个非空文件（半成品目录不能当成本次产物）。 */
+function hasCompleteOutput(dir) {
+  for (const name of SKILL_OUTPUT_FILES) {
+    try {
+      if (statSync(join(dir, name)).size <= 0) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 兜底：本次执行窗口内被写过、且 4 个文件齐全的输出目录名，作为 DocID 候选。 */
+function recentDocIdDirs(startedAtMs) {
+  let entries;
+  try {
+    entries = readdirSync(skillTmpRoot, { withFileTypes: true });
+  } catch {
+    return []; // 目录不存在 = 没有产物
+  }
+  const ids = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^\d{10,}$/.test(entry.name)) continue;
+    const dir = join(skillTmpRoot, entry.name);
+    try {
+      if (statSync(dir).mtimeMs < startedAtMs - 90_000) continue;
+    } catch {
+      continue; // 目录刚被删掉：忽略
+    }
+    if (hasCompleteOutput(dir)) ids.push(entry.name);
+  }
+  return ids;
+}
+
+/** 返回 true=存在 / false=不存在 / null=查询失败（无法判定，不能算失败）。 */
+async function blogDocExists(docId) {
+  try {
+    const snapshot = await state.db.collection(blogCollection).doc(docId).get();
+    return snapshot.exists;
+  } catch (error) {
+    log(`产物校验查询失败（${blogCollection}/${docId}）：${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * 校验 skill 是否真的把文章上传成功。
+ * 返回 { docId, verified: true } | { skipped: true, reason } | { error: "失败原因" }。
+ */
+async function verifySkillUpload({ skillName, stdout, startedAtMs }) {
+  if (!state.config.verifySkillUpload || !state.db) return { skipped: true };
+  const names = state.config.verifySkillNames || [];
+  if (names.length && !names.includes(skillName)) {
+    return { skipped: true, reason: `skill「${skillName}」不在产物校验名单（SKILL_VERIFY_NAMES）` };
+  }
+
+  // 输出里报了 DocID 就**只认它**（不再退化到 mtime），避免用别的旧目录造成假通过；
+  // 只有输出里完全没有 DocID 时，才按「本次新写出的完整目录」兜底。
+  const reported = extractDocIds(stdout);
+  const groups = reported.length
+    ? [{ ids: reported, by: "输出中的 DocID" }]
+    : [{ ids: recentDocIdDirs(startedAtMs), by: "输出目录 mtime" }];
+
+  let inconclusive = false;
+  const tried = [];
+  for (const group of groups) {
+    for (const docId of group.ids) {
+      tried.push(docId);
+      const exists = await blogDocExists(docId);
+      if (exists === true) return { docId, verified: true, matchedBy: group.by };
+      if (exists === null) inconclusive = true;
+    }
+  }
+  if (inconclusive) {
+    return { skipped: true, reason: "Firestore 查询失败，无法校验产物" };
+  }
+  if (tried.length === 0) {
+    return {
+      error:
+        `产物校验失败：skill 退出码为 0，但输出里没有 DocID、${skillTmpRoot} 下也没有本次生成的` +
+        `完整输出目录（需含 ${SKILL_OUTPUT_FILES.join(" / ")}）。疑似 agent 提前结束回合` +
+        `（headless 单回合语义），请查 journalctl 里的 [skill:*] 日志。`
+    };
+  }
+  return {
+    error:
+      `产物校验失败：skill 退出码为 0，但 ${blogCollection} 里不存在候选文章` +
+      `（${[...new Set(tried)].slice(0, 3).join(", ")}）。上传步骤很可能没跑到 ——` +
+      `headless 下单回合结束=进程退出，仍在运行的后台子代理会被一并杀掉。`
+  };
 }
 
 /** Skills 流程的本地 STT 文本路径：<sttOutputDir>/<uid>/<documentId>.txt */
@@ -912,6 +1060,21 @@ async function processSkillJob(job) {
       .slice(0, 500);
     return `skill「${service.skillName}」执行失败（exit ${runResult.code}）：${reason || "无错误输出"}`;
   }
+  // 退出码 0 ≠ 真的做完：独立校验产物，避免 headless 回合提前结束造成的假成功
+  const uploadCheck = await verifySkillUpload({
+    skillName: service.skillName,
+    stdout: output,
+    startedAtMs: Date.now() - (runResult.durationMs || 0)
+  });
+  if (uploadCheck.error) {
+    return uploadCheck.error;
+  }
+  if (uploadCheck.verified) {
+    log(`产物校验通过：${blogCollection}/${uploadCheck.docId} 已存在（匹配依据：${uploadCheck.matchedBy}）`);
+  } else if (uploadCheck.skipped) {
+    log(`产物校验跳过：${uploadCheck.reason || "SKILL_VERIFY_UPLOAD=false"}`);
+  }
+
   if (!localSkillInstalled(state.config.skillsDir, service.skillName)) {
     return `skill「${service.skillName}」执行结束，但本地目录里没有找到它（安装可能失败）。`;
   }
@@ -935,6 +1098,7 @@ async function processSkillJob(job) {
       skillName: service.skillName,
       skillVersion: service.version,
       skillOutput: output.slice(0, MAX_SKILL_OUTPUT_CHARS),
+      ...(uploadCheck.verified ? { skillUploadVerified: true, blogDocId: uploadCheck.docId } : {}),
       sttTextPath: stored?.gsUrl || "",
       sttTextUrl: stored?.httpsUrl || "",
       sttTextLocalPath: textPath
@@ -1183,6 +1347,13 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
     skillsDshBin: config?.skillsDshBin || null,
     sttOutputDir: config?.sttOutputDir || sttDir,
     dshPermissionMode: config?.dshPermissionMode || "danger-full-access",
+    verifySkillUpload: config?.verifySkillUpload !== false,
+    verifySkillNames: (() => {
+      const raw = config?.verifySkillNames;
+      if (raw === null || raw === undefined || raw === "") return [...DEFAULT_VERIFY_SKILL_NAMES];
+      const names = normalizeSkillNameList(raw);
+      return names.includes("*") ? [] : names; // [] = 名单为空 = 对所有 skill 生效
+    })(),
     fcmEnabled: config?.fcmEnabled !== false
   };
 

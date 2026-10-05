@@ -7,7 +7,7 @@ description: >-
   最后调用一次 vibecodingjapan-upblog 上传到 VibeCoding Japan 博客。
 metadata:
   category: Content
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # 音声テキスト → 多言語ブログ → アップロード
@@ -52,6 +52,27 @@ metadata:
    ```
    如果写文件时报 `sandbox: file access denied` / `Operation not permitted`，说明没有放开沙箱；
    请停止并在最终报告里写明这条命令，不要改用其它路径绕过。
+
+---
+
+## 1.5 执行纪律（headless 单回合语义，**必须遵守**）
+
+本 skill 由 `aiskillsrunner` 通过 `dsh --profile headless <task>` 启动，这是**单回合**执行：
+
+- **你一旦结束回合，进程立即退出。** 此时仍在运行的 `subagent`（后台子代理）会被一并杀掉，
+  它们还没写完的文件不会落盘 —— 但退出码依然是 `0`，调用方会误以为成功。
+  这正是「Blog 上没有文章，但任务记录显示 success」这类静默故障的成因（2026-10-05 真实发生过）。
+- 因此：**在 Step8 上传成功、Step9 输出最终报告之前，绝对不要结束回合。**
+  也不要把「稍等 / 正在等待子代理 / Progress so far」这类中间状态当作回合结尾 ——
+  headless 下不会再有「收到通知后继续」的第二次机会。
+
+翻译步骤（Step2 / Step3）的硬性要求：
+
+- **默认自己顺序翻译**：先写完 `日文.md`，再写 `英文.md`，全部在本回合内完成。
+- 确实要用 `subagent` 时，只能用**前台阻塞**方式（`run_in_background: false`），
+  并在同一回合内取回结果后再继续；**禁止**依赖「稍后收到通知再继续」。
+- 两份译稿 + `文章信息.json` 全部写完并通过第 7 节自检后，才可以进入上传。
+- 如果发现还有子代理在跑：等它结束、拿到结果再往下走，不要提前收尾。
 
 ---
 
@@ -258,3 +279,24 @@ bash "$SKILL_DIR/scripts/upload-blog.sh" "$DOCID"
 5. 若中途失败：停在哪一步、具体错误、需要人做什么。
 
 不要在报告里重复粘贴整篇正文。
+
+### 报告最后一行：机器可读标记（**必需**）
+
+报告的**最后一行**必须是下面这条标记 —— 后端（mediasplitter-monitor）用它做产物校验：
+它会拿 `<DOCID>` 去查博客数据库，确认文章真的存在；标记缺失或格式不对会被判为任务失败。
+
+```
+SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>
+```
+
+中途失败（包括上传失败）时，最后一行改为：
+
+```
+SKILL_RESULT: FAILED step=<Step1|Step2|Step3|Step4|upload> reason=<一句话原因>
+```
+
+例：
+
+```
+SKILL_RESULT: OK docid=1791208565661 blog=/blog/1791208565661
+```

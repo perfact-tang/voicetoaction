@@ -1,16 +1,13 @@
 ---
 name: audio-to-multilingual-blog
 description: >-
-  把 aiskillsrunner 传入的语音转文字（STT / Fast Whisper）原始文本，按固定 4 步处理成
-  简体中文精炼原稿、母语级日文、母语级英文，生成 3 语言文章信息 JSON，写入
-  ~/Documents/tmpaiskill/<DocID>/，最后调用一次 vibecodingjapan-upblog 上传到
-  VibeCoding Japan 博客（Firestore + Cloud Storage）。
-whenToUse: >-
-  当 aiskillsrunner（或人工）提供一段语音转文字原稿，需要转成 ja/zh/en 三语博客并登记到
-  VibeCoding Japan 博客时使用。
+  将 aiskillsrunner 或人工提供的语音转文字（STT / Fast Whisper）素材审阅、重组为有明确主线的
+  简体中文博客，审定后分别本地化翻译为日文和英文（含俚语、网络用语的自然表达），
+  生成三语文章信息 JSON，写入 ~/Documents/tmpaiskill/ 的 DocID 目录，
+  最后调用一次 vibecodingjapan-upblog 上传到 VibeCoding Japan 博客。
 metadata:
   category: Content
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # 音声テキスト → 多言語ブログ → アップロード
@@ -24,13 +21,15 @@ metadata:
 
 ```
 ~/Documents/tmpaiskill/<DocID>/
-├── 中文.md        # Step1：STT → 精炼简体中文原稿
+├── 中文.md        # Step1：STT → 审阅、重组、写作后的简体中文定稿
 ├── 日文.md        # Step2：Step1 内容 → 母语级日文
 ├── 英文.md        # Step3：Step1 内容 → 母语级英文
 └── 文章信息.json   # Step4：3 语言的 blogtitle / blogsummary / blogseo / blogmindmap
 ```
 
-严格按 Step1 → Step2 → Step3 → Step4 → 上传 的顺序执行，不要跳步，不要合并步骤。
+严格按 Step1（审阅素材 → 重组提纲 → 撰写中文 → 审定）→ Step2（日文）→ Step3（英文）→ Step4（元信息）→ 上传 的顺序执行。中文定稿通过审阅后才能开始翻译；日文和英文都直接依据同一份中文定稿，不得从 STT 各自写作或经日文转译英文。
+
+录音是写作素材，录音的发言顺序不等于文章的逻辑顺序。先判断作者最值得传达的观点和读者需要理解的问题，再选择材料与结构。
 
 ---
 
@@ -98,77 +97,27 @@ mkdir -p "$DOC_DIR"
 
 ---
 
-## 3. Step1 — 生成简体中文原稿 → `中文.md`
+## 3. Step1 — 审阅素材并写成中文博客 → `中文.md`
 
-以 **STT 正文**为用户输入，套用下面的规则；结果写入 `$DOC_DIR/中文.md`。
+必须先阅读 [references/step1.md](references/step1.md)，以 **STT 正文**为素材执行其中的审阅、结构重组、写作和定稿检查。通过检查后的中文文章写入 `$DOC_DIR/中文.md`。
 
-```text
-# Role
-你是一名顶级的文本编辑与速记整理专家，专精于将粗糙的语音转文字（ASR）文本转化为高质量、易于阅读的精炼文章。使用简体中文输出。
+保留作者的核心观点、支撑它的事实、案例和限制条件；可合并重复论述、删除无关岔题。文章的深度来自解释素材中的因果、取舍与意义，不来自堆砌篇幅或编造证据。素材短、信息少时写成扎实的短文，不强行扩成长篇。编辑笔记和内部提纲不写入正文。
 
-# Goal
-将用户提供的 Fast Whisper 原始转换文本进行重构。在[**绝对不删减任何核心信息和细节**]的前提下，极大地提升文章的可读性、逻辑性和流畅度。
+## 4. Step2 — 将中文定稿本地化为日文 → `日文.md`
 
-# Optimization Rules (优化原则)
-1. **信息零删减（最高原则）**：严禁删除任何有实质意义的词汇、数据、观点、细节或案例。即使原文表达啰嗦，也要将其中的核心信息保留下来。
-2. **逻辑与顺序重构**：允许且鼓励打破原文凌乱的叙述顺序。请按照“因果、时间、递进或逻辑关联”重新调整段落和句子顺序，使其形成一条清晰的逻辑主线。
-3. **口语化清理**：消除语音转文字带来的“呃、啊、然后、就是说、对”等语气词；修正重复发声；将大段大段无标点的“长难句”拆分为短小精悍、易于阅读的句子。
-4. **错别字与同音字修正**：基于语境，自动修正 Fast Whisper 常见的同音错别字（例如将“做业务”误转为“坐义务”等）。
-5. **排版优化**：使用合理的段落切分、加粗核心观点、或在必要时使用分条列点（Markdown 格式），让文章产生“一眼可见”的清晰结构。
+必须先阅读 [references/step2.md](references/step2.md)。以 **审定后的 `中文.md` 全文**为唯一内容基准，翻译、审校后写入 `$DOC_DIR/日文.md`。
 
-# Workflow (工作流)
-1. 深度通读用户给出的原始文本，提取出所有的核心事实和信息点。
-2. 梳理这些信息点之间的内在逻辑，规划出最适合阅读的段落结构。
-3. 撰写重构文本，润色文笔，确保语气自然（可根据原文判断是商务、科技还是日常分享语调）。
-4. 对照原文进行最终检查，确保没有任何信息点被遗漏。
+## 5. Step3 — 将同一中文定稿本地化为英文 → `英文.md`
 
-# 原始文本:
-<STT 正文>
-```
+必须先阅读 [references/step3.md](references/step3.md)。以 **同一份审定后的 `中文.md` 全文**为唯一内容基准，翻译、审校后写入 `$DOC_DIR/英文.md`。不得以日文译稿作为源稿。
 
----
-
-## 4. Step2 — 生成母语级日文 → `日文.md`
-
-以 **Step1 生成的中文原稿全文**为输入：
-
-```text
-以下の簡体字中国語の原稿を、ネイティブな日本語に翻訳してください。
-- 情報を追加・削除しないこと（Step1 の情報点をすべて保持する）。
-- 直訳調ではなく、日本語の技術ブログとして自然な文体・用語にすること。
-- Markdown の見出し・箇条書き・強調などの構造を維持すること。
-- 本文だけを出力すること（説明や前置きは書かない）。
-
-[原稿]
-<Step1 の全文>
-```
-
-结果写入 `$DOC_DIR/日文.md`。
-
----
-
-## 5. Step3 — 生成母语级英文 → `英文.md`
-
-以 **Step1 生成的中文原稿全文**为输入：
-
-```text
-Translate the following Simplified-Chinese manuscript into native, publication-quality English.
-- Do not add or remove any information (keep every point from the source).
-- Use natural technical-blog English, not a literal translation.
-- Keep the Markdown structure (headings, lists, emphasis).
-- Output the article body only, with no preamble or explanation.
-
-[Manuscript]
-<Step1 の全文>
-```
-
-结果写入 `$DOC_DIR/英文.md`。
+翻译时保留论证、事实、条件、态度与表达强度；俚语和网络用语按语境选取目标语言贴切的说法。中文定稿如有实质修改，先同步两份译稿，再生成元信息。
 
 ---
 
 ## 6. Step4 — 生成 3 语言文章信息 → `文章信息.json`
 
-以 **Step1 的中文原稿全文**（参考文献：Step2/Step3 的译文）为输入，套用下面的要求：
+以 **中文定稿和两份已审校的译稿**为输入，套用下面的要求；同时阅读 [references/step4.md](references/step4.md)：
 
 ```text
 あなたはBlogの編集アシスタントです。
@@ -192,7 +141,7 @@ Translate the following Simplified-Chinese manuscript into native, publication-q
 - blogtitle / blogsummary / blogseo / blogmindmap は、必ずその言語の本文（ja/zh/en）に対応させること。
 
 [ブログ本文]
-<Step1 の全文>
+<中文、日文、英文三份最终正文>
 ```
 
 把结果按下面的结构写入 `$DOC_DIR/文章信息.json`（用 `write` 工具直接写 UTF-8，不要用会破坏多字节字符的转义方式）：
@@ -244,6 +193,14 @@ Translate the following Simplified-Chinese manuscript into native, publication-q
 ---
 
 ## 7. 上传前自检（本地校验，不调用上传工具）
+
+先完成内容检查，再执行文件校验：
+
+- 中文：主线清楚，每节都有具体论点或材料支撑；相隔很远的相关内容已按逻辑归并；原文的核心观点、关键事实和限定条件没有丢失或被改写成更强的结论。没有为凑篇幅加入空泛议论。
+- 日文、英文：逐节对照中文定稿，核对数字、专名、否定、可能性、因果与作者立场；俚语的意义和语气相符，目标语言读起来像自然的博客文章。
+- 元信息：三语标题、摘要和思维导图对应最终文章的逻辑结构，不沿用录音发言顺序。
+
+发现问题先改正文；若改动中文的内容或结构，同步译稿与元信息，再检查。
 
 ```bash
 DOC_DIR="$HOME/Documents/tmpaiskill/$DOCID"

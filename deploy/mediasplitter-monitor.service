@@ -1,6 +1,6 @@
 [Unit]
 Description=VoiceToAction AI Monitor (Firebase Admin auto-listening + faster-whisper)
-Documentation=file:/home/pengfei-mini/Documents/GitHub/mediaeditor/AUTOSTART_GUIDE.md
+Documentation=file:/home/pengfei-mini/Documents/GitHub/voicetoaction/AUTOSTART_GUIDE.md
 After=network-online.target
 Wants=network-online.target
 
@@ -15,7 +15,7 @@ Group=pengfei-mini
 Environment=HOME=/home/pengfei-mini
 WorkingDirectory=/home/pengfei-mini/Documents/GitHub/mediaeditor
 Environment=PATH=/home/pengfei-mini/.nvm/versions/node/v24.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/home/pengfei-mini/Documents/GitHub/mediaeditor/scripts/start-monitor.sh
+ExecStart=/home/pengfei-mini/Documents/GitHub/voicetoaction/scripts/start-monitor.sh
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

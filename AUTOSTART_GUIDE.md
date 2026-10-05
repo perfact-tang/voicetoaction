@@ -81,7 +81,7 @@ sudo systemctl daemon-reload
 [Desktop Entry]
 Type=Application
 Name=VoiceToAction AI Monitor
-Exec=/home/pengfei-mini/Documents/GitHub/mediaeditor/scripts/start-monitor.sh
+Exec=/home/pengfei-mini/Documents/GitHub/voicetoaction/scripts/start-monitor.sh
 Terminal=false
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=10
@@ -102,7 +102,7 @@ X-GNOME-Autostart-Delay=10
 # 打开当前用户的 crontab
 crontab -e
 # 加入一行（注意：cron 环境 PATH 很精简，脚本内部会自动找 node）
-@reboot /home/pengfei-mini/Documents/GitHub/mediaeditor/scripts/start-monitor.sh
+@reboot /home/pengfei-mini/Documents/GitHub/voicetoaction/scripts/start-monitor.sh
 ```
 
 取消：删掉该行。

@@ -9,8 +9,8 @@
 - 先把文本拆成论证链、再写台词、再画分镜 —— 不把文章按小标题逐段翻译成画面。
 - 台词用 TTS 配音，并输出**与配音逐行对齐**的 `.lrc` 字幕文件。
 - 用 Remotion 在本机渲染成 MP4（无需云端渲染服务）。
-- 目标执行环境是 **Ubuntu**；配音**优先用本机 MeloTTS**（神经网络 TTS，中文自然），
-  没装才回退 `espeak-ng`（机械音），连 espeak 都没有时自动退化为纯字幕版。
+- 目标执行环境是 **Ubuntu**；配音**默认用 edge-tts**（微软在线 TTS，音色平稳自然，
+  合成时需联网），没网时回退本地 MeloTTS，再不行回退 `espeak-ng`，都没有时退化为纯字幕版。
 - 工作目录按 **DocID** 组织：`~/Documents/tmpaiskill/<DocID>/`。
 - 最后**只调用 1 次**上传脚本，完成 Storage 上传 + Firestore 写入 + FCM。
 
@@ -64,7 +64,7 @@ python3 -V
 ffmpeg -version | head -1
 ffprobe -version | head -1
 sudo apt-get install -y fonts-noto-cjk   # 中文字体（缺了会渲染成方框）
-bash scripts/install-melotts.sh          # 推荐：中文配音（无需 sudo，约 1.5GB 含模型）
+bash scripts/install-melotts.sh          # 推荐：装 edge-tts + MeloTTS（无需 sudo）
 sudo apt-get install -y espeak-ng        # 可选：MeloTTS 缺失时的回退；都没有则纯字幕
 ```
 
@@ -72,28 +72,41 @@ Firebase 服务账号密钥默认路径
 `~/Downloads/vibecodingjapan-firebase-adminsdk-fbsvc-f376a3b494.json`，
 可用 `AISKILLS_MOVIE_KEY` 覆盖。作者 uid 默认 `KYTF9y43qgc39vKn0sI3qWpsjRE2`。
 
-## 配音后端（MeloTTS 优先，自动判定）
+## 配音后端（edge-tts 优先，自动判定）
 
-`assets/engine/scripts/build_audio.py` 自己判断本机有没有 MeloTTS，**不需要人工指定**：
+`assets/engine/scripts/build_audio.py` 自己挑后端，**不需要人工指定**：
 
-| 顺序 | 探测位置 |
-|---|---|
-| 1 | `$MELOTTS_PYTHON` / `$AISKILLS_MELOTTS_PYTHON` 指定的解释器 |
-| 2 | 运行 `build_audio.py` 的那个 `python3` |
-| 3 | `PATH` 上的 `python3` / `python` |
-| 4 | `~/melotts-venv`、`~/.local/share/melotts/venv`、`~/.venvs/melotts`、`~/melotts/.venv` |
+| 顺序 | 后端 | 说明 |
+|---|---|---|
+| 1 | **`edge`** | edge-tts（微软在线 TTS）。默认音色 **`zh-CN-YunyangNeural`**（男声·新闻播报，平稳）。31 条台词约 **23 秒**合成完。**需要联网。** |
+| 2 | `melo` | 本地 MeloTTS（离线兜底，首次要下模型） |
+| 3 | `espeak-ng` / `say` | 机械音兜底 |
+| 4 | 无 | 纯字幕版 |
 
-判定标准是「这个解释器能不能 `import melo`」，不是「目录在不在」，所以路径写错没有副作用。
-找不到就走 `espeak-ng`（macOS 上是 `say`）；MeloTTS 存在但合成报错时会打印 warning 并回退，
-视频照样产出。
+失败会自动降级：edge 断网 → 本地 MeloTTS → espeak，每一步都有 warning，视频照常产出。
+判定标准是「解释器能不能 `import edge_tts` / `import melo`」，探测顺序
+`$AISKILLS_TTS_PYTHON` → `$MELOTTS_PYTHON` → 当前解释器 → `PATH` → `~/melotts-venv` 等约定位置。
 
 ```bash
-bash scripts/install-melotts.sh                    # 安装/修复（无需 sudo，优先用 uv 管理的 Python）
-bash scripts/install-melotts.sh --check            # 只体检：解释器版本、能不能 import melo
-python3 scripts/build_audio.py --tts melo          # 强制 MeloTTS
+bash scripts/install-melotts.sh                    # 装两个后端（无需 sudo，优先用 uv 管理的 Python）
+bash scripts/install-melotts.sh --check            # 只体检
+python3 scripts/build_audio.py --tts edge          # 强制 edge-tts（默认）
+python3 scripts/build_audio.py --tts melo          # 强制本地 MeloTTS
 ```
 
-**worker 的两道保险**（`assets/engine/scripts/melo_tts.py`）：
+**edge-tts 调参**：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `EDGE_TTS_VOICE` | `zh-CN-YunyangNeural` | 音色；也可在 `script.json` 的 `voice` 里直接写 `zh-CN-XiaoxiaoNeural` |
+| `EDGE_TTS_RATE` | `+0%` | 语速，如 `+10%` |
+| `EDGE_TTS_PITCH` | `+0Hz` | 音高，如 `-2Hz` |
+| `EDGE_TTS_RETRIES` | `3` | 网络抖动重试次数 |
+
+备选音色：`zh-CN-XiaoxiaoNeural`（女·温暖）、`zh-CN-YunxiNeural`（男·活泼）、
+`zh-CN-YunjianNeural`（男·激情）；全部用 `edge-tts --list-voices | grep zh-CN` 看。
+
+**MeloTTS 兜底时的两道保险**（`assets/engine/scripts/melo_tts.py`）：
 
 1. **静音检测 + 换音色兜底**。MeloTTS 会输出「长度正确、但采样几乎全是 0」的波形。
    实测这不是随机现象：**换种子、把 `sdp_ratio`/`noise_scale` 归零、关掉 BERT、换 torch
@@ -103,9 +116,9 @@ python3 scripts/build_audio.py --tts melo          # 强制 MeloTTS
    自动换兜底音色（会在日志里标出来）。
 2. **逗号不再被它切开**。MeloTTS 会在 `，` 处切句、段间只插 **0.05 秒**停顿（正常逗号停顿
    是 0.2–0.3 秒），听起来像吞字。worker 默认先把行内 `，`/`,`/`；`/`;` 去掉让模型自己断句，
-   残留切点用自己的 0.25 秒停顿拼接。
+   残留切点用自己的 0.25 秒停顿拼接。（edge-tts 不需要这处理，它自带 0.2–0.3 秒自然停顿。）
 
-**可调参数**（环境变量，`build_audio.py` 读取后写进 worker 的 jobs.json）：
+**MeloTTS 可调参数**：
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
@@ -114,11 +127,10 @@ python3 scripts/build_audio.py --tts melo          # 强制 MeloTTS
 | `MELOTTS_SPEED` | `1.0` | 语速（夹在 0.5–2.0） |
 | `MELOTTS_SDP_RATIO` | `0.2` | 韵律随机性；调低更平稳，`0` 最稳 |
 | `MELOTTS_NOISE_SCALE` | `0.6` | 语调起伏；调低更平 |
-| `MELOTTS_ATTEMPTS` | `2` | 每个音色试几次 |
 | `MELOTTS_GAP_S` | `0.25` | 残留切点处的停顿秒数 |
 | `MELOTTS_STRIP_PUNCT` | `，,；;` | 合成前去掉的行内标点；空值 = 不去 |
 
-试听挑音色：
+试听挑 MeloTTS 音色：
 
 ```bash
 ~/melotts-venv/bin/python assets/engine/scripts/melo_audition.py \

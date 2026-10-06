@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
-# 安装 MeloTTS（中文配音），**不需要 sudo**。
+# 安装动画 skill 的配音后端，**不需要 sudo**：
+#   - edge-tts（微软在线 TTS，**默认后端**，音色 zh-CN-YunyangNeural，合成时需联网）
+#   - MeloTTS（本地神经网络 TTS，离线兜底）
+# 两个装进同一个 venv，任何解释器能 `import edge_tts` / `import melo` 就会被自动发现。
 #
 # 为什么优先用 uv 管理的 Python，而不是系统 python3：
 #   Ubuntu 26.04 升级时把 python3.12 从系统里删掉了，/usr/bin/python3 变成 3.14，
@@ -8,7 +11,7 @@
 #   uv 装的 Python 放在 ~/.local/share/uv/python/ 下，跟系统升级解耦。
 #   没有 uv 时才回退「系统 python3 -m venv --without-pip + get-pip.py」。
 #
-# 装到：   $HOME/melotts-venv     （MELOTTS_VENV 覆盖）
+# 装到：   $HOME/melotts-venv     （MELOTTS_VENV 覆盖；名字沿用，实际两个后端都在里面）
 # Python： 3.12                   （MELOTTS_PY_VERSION 覆盖；3.13/3.14 上 numpy<2 没有 wheel）
 # 用法：   bash scripts/install-melotts.sh            # 安装/修复
 #          bash scripts/install-melotts.sh --check    # 只体检，不改任何东西
@@ -49,13 +52,26 @@ if [ "$CHECK_ONLY" = "1" ]; then
     echo "状态        : ✖ 解释器版本不匹配（系统 python 被升级过？）→ 跑一次不带 --check 的本脚本即可重建"
     exit 1
   fi
+  if "$PY" -c "import edge_tts" 2>/dev/null; then
+    echo "edge-tts    : ✓ $("$PY" -c 'import edge_tts;print(edge_tts.__version__)')   （默认后端，合成时需联网）"
+    EDGE_OK=1
+  else
+    echo "edge-tts    : ✖ 未安装"
+    EDGE_OK=0
+  fi
   if "$PY" -c "import melo" 2>/dev/null; then
     echo "melo        : ✓ $("$PY" -c 'import melo,os;print(os.path.dirname(melo.__file__))')"
     echo "torch       : $("$PY" -c 'import torch;print(torch.__version__)')"
-    echo "状态        : ✓ 可用"
+    MELO_OK=1
+  else
+    echo "melo        : ✖ 未安装"
+    MELO_OK=0
+  fi
+  if [ "$EDGE_OK" = "1" ] || [ "$MELO_OK" = "1" ]; then
+    echo "状态        : ✓ 至少有一个后端可用"
     exit 0
   fi
-  echo "状态        : ✖ 解释器对但 import melo 失败 → 跑一次不带 --check 的本脚本重装"
+  echo "状态        : ✖ 两个后端都不可用 → 跑一次不带 --check 的本脚本重装"
   exit 1
 fi
 
@@ -125,6 +141,14 @@ if ! "$PY" -c "import melo" >/dev/null 2>&1; then
 fi
 log "melo: $("$PY" -c 'import melo,os;print(os.path.dirname(melo.__file__))')"
 
+# ---- 5b. edge-tts（默认后端；很轻，没有模型可下）--------------------------
+if ! "$PY" -c "import edge_tts" >/dev/null 2>&1; then
+  log "安装 edge-tts（默认配音后端）"
+  pip_install edge-tts || log "⚠ edge-tts 安装失败（动画会退回本地 MeloTTS）"
+fi
+"$PY" -c "import edge_tts" >/dev/null 2>&1 \
+  && log "edge-tts: $("$PY" -c 'import edge_tts;print(edge_tts.__version__)')"
+
 # ---- 6. 数据文件：unidic 词典 + nltk 语料 ---------------------------------
 # 上游 setup.py 的 post-install 会调 `python -m unidic download`，但那句用的是
 # 裸 `python`（本机没有这个命令），而且每次重跑会白下 526MB，所以这里自己控制。
@@ -171,8 +195,29 @@ if command -v ffprobe >/dev/null 2>&1; then
   log "试听文件时长：$(ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/melotts-smoke-zh.wav)s"
 fi
 
-log "✅ MeloTTS 安装完成"
+# ---- 8. 冒烟测试：edge-tts（默认后端，需要联网）--------------------------
+log "冒烟测试：edge-tts 合成一句中文（需要联网）"
+if "$PY" - <<'PYEOF'
+import asyncio, os
+import edge_tts
+
+out = "/tmp/edgetts-smoke-zh.mp3"
+asyncio.run(
+    edge_tts.Communicate(
+        "这是一段中文配音测试，用来确认 edge-tts 可以正常工作。",
+        "zh-CN-YunyangNeural",
+    ).save(out)
+)
+print(f"  已写出 {out}（{os.path.getsize(out) / 1024:.0f} KB）")
+PYEOF
+then
+  log "✓ edge-tts 可用（默认后端，音色 zh-CN-YunyangNeural）"
+else
+  log "⚠ edge-tts 合成失败（多半是没网）→ 动画会自动退回本地 MeloTTS"
+fi
+
+log "✅ 配音后端安装完成"
 log "   venv   : $VENV"
 log "   python : $PY"
-log "   试听   : /tmp/melotts-smoke-zh.wav"
+log "   试听   : /tmp/melotts-smoke-zh.wav  /tmp/edgetts-smoke-zh.mp3"
 log "   体检   : bash scripts/install-melotts.sh --check"

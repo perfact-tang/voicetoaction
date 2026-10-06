@@ -15,10 +15,11 @@ the same pipeline drives any number of videos:
 
 Steps
   1. Render each narration line to speech with whatever TTS is available:
-     **MeloTTS first** when a local install is found (neural, much more natural
-     Chinese than espeak), then macOS `say`, then espeak-ng/espeak. If no TTS
-     exists, or `--no-audio` is given, silent clips of the right length are
-     generated instead so the video still runs as subtitles-only.
+     **edge-tts first** (Microsoft's online voices — stable prosody, natural
+     Chinese; needs network), then local **MeloTTS** as the offline fallback,
+     then macOS `say`, then espeak-ng/espeak. If nothing works, or `--no-audio`
+     is given, silent clips of the right length are generated instead so the
+     video still runs as subtitles-only.
   2. Concatenate every line into one continuous track; the trailing silence each
      clip carries becomes the breathing room between lines, so audio and
      on-screen timing come from a single source.
@@ -33,11 +34,13 @@ Usage:
   python3 scripts/build_audio.py --script other.json
   python3 scripts/build_audio.py --dry-run          # pacing check, no synthesis
   python3 scripts/build_audio.py --no-audio         # force subtitles-only
-  python3 scripts/build_audio.py --tts espeak-ng    # force a TTS backend
+  python3 scripts/build_audio.py --tts edge         # force edge-tts (default)
   python3 scripts/build_audio.py --tts melo         # force the local MeloTTS
+  python3 scripts/build_audio.py --tts espeak-ng    # force espeak
 
-MeloTTS is auto-detected: any interpreter that can `import melo` counts, see
-find_melo_python(). Install it with scripts/install-melotts.sh (no sudo needed).
+Both neural backends are auto-detected: any interpreter that can
+`import edge_tts` / `import melo` counts (see find_tts_python). Install them with
+scripts/install-melotts.sh (no sudo needed).
 """
 
 from __future__ import annotations
@@ -94,6 +97,27 @@ MELO_DEFAULTS: dict = {
     "strip_punct": "，,；;",  # 行内标点留着会被它切句 + 只插 50ms → 听起来像吞字
 }
 MELO_ENV_PREFIX = "MELOTTS_"
+
+# edge-tts：微软 Edge 的在线 TTS，**默认后端**。韵律稳定、中文音色自然，
+# 而且没有模型加载，逐条合成很快。代价是合成时必须联网。
+EDGE_WORKER = Path(__file__).resolve().parent / "edge_tts_worker.py"
+EDGE_DEFAULTS: dict = {
+    "rate": "+0%",      # 语速，如 "+10%"
+    "pitch": "+0Hz",    # 音高，如 "-2Hz"
+    "volume": "+0%",    # 音量（后面还有统一响度归一化，一般不用动）
+    "retries": 3,       # 网络抖动时的重试次数
+}
+EDGE_ENV_PREFIX = "EDGE_TTS_"
+# script.json 的 voice 没指定 edge 音色时，按语言取这些默认音色。
+EDGE_VOICE_BY_LANGUAGE = {
+    "ZH": "zh-CN-YunyangNeural",   # 男声·新闻播报，平稳——讲解类旁白用这个
+    "ZH_MIX_EN": "zh-CN-YunyangNeural",
+    "EN": "en-US-GuyNeural",
+    "JP": "ja-JP-KeitaNeural",
+    "KR": "ko-KR-InJoonNeural",
+    "ES": "es-ES-AlvaroNeural",
+    "FR": "fr-FR-HenriNeural",
+}
 
 
 # --------------------------------------------------------------------------
@@ -173,14 +197,14 @@ def han_len(text: str) -> int:
 # --------------------------------------------------------------------------
 
 
-_melo_python: str | None = None
-_melo_probed = False
+_tts_python_cache: dict[str, str | None] = {}
 
 
-def _melo_python_candidates() -> list[str]:
-    """Interpreters that might have MeloTTS, most specific first."""
+def _tts_python_candidates() -> list[str]:
+    """可能装了 TTS 依赖（melo / edge_tts）的解释器，最具体的排前面。"""
     home = Path.home()
     raw = [
+        os.environ.get("AISKILLS_TTS_PYTHON"),
         os.environ.get("MELOTTS_PYTHON"),
         os.environ.get("AISKILLS_MELOTTS_PYTHON"),
         sys.executable,
@@ -204,24 +228,31 @@ def _melo_python_candidates() -> list[str]:
     return ordered
 
 
-def find_melo_python() -> str | None:
-    """Path of an interpreter that can `import melo`, or None if there is none.
+def find_tts_python(module: str) -> str | None:
+    """能 `import <module>` 的解释器路径；找不到返回 None（按模块缓存）。
 
-    Probe order: $MELOTTS_PYTHON → $AISKILLS_MELOTTS_PYTHON → the interpreter
-    running this script → python3/python on PATH → the conventional venv
-    locations. The first one that actually imports MeloTTS wins, so a stale
-    path on that list costs a fraction of a second and nothing else.
+    判定标准是「真的能 import」，不是「目录存在」，所以候选列表里写错路径没有副作用。
     """
-    global _melo_python, _melo_probed
-    if not _melo_probed:
-        _melo_probed = True
-        for candidate in _melo_python_candidates():
+    if module not in _tts_python_cache:
+        found: str | None = None
+        for candidate in _tts_python_candidates():
             if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
                 continue
-            if run([candidate, "-c", "import melo"]).returncode == 0:
-                _melo_python = candidate
+            if run([candidate, "-c", f"import {module}"]).returncode == 0:
+                found = candidate
                 break
-    return _melo_python
+        _tts_python_cache[module] = found
+    return _tts_python_cache[module]
+
+
+def find_melo_python() -> str | None:
+    """能 `import melo` 的解释器，没有则 None。"""
+    return find_tts_python("melo")
+
+
+def find_edge_python() -> str | None:
+    """能 `import edge_tts` 的解释器，没有则 None。"""
+    return find_tts_python("edge_tts")
 
 
 def _melo_language(voice: str) -> str:
@@ -287,18 +318,68 @@ def _melo_settings() -> dict:
     return settings
 
 
+def _edge_settings() -> dict:
+    """edge-tts 参数 = EDGE_DEFAULTS + EDGE_TTS_* 环境变量覆盖。
+
+    注意 rate/pitch/volume 是字符串（形如 "+10%"、"-2Hz"），不要按数字解析；
+    想换音色也可以直接用 EDGE_TTS_VOICE=zh-CN-XiaoxiaoNeural。
+    """
+    settings = dict(EDGE_DEFAULTS)
+    for key, default in EDGE_DEFAULTS.items():
+        raw = os.environ.get(f"{EDGE_ENV_PREFIX}{key.upper()}")
+        if raw is None:
+            continue
+        try:
+            if isinstance(default, bool):
+                settings[key] = raw.strip().lower() in ("1", "true", "yes", "on")
+            elif isinstance(default, int):
+                settings[key] = int(float(raw))
+            elif isinstance(default, float):
+                settings[key] = float(raw)
+            else:
+                settings[key] = raw
+        except ValueError:
+            print(
+                f"warning: {EDGE_ENV_PREFIX}{key.upper()}={raw!r} 解析失败，用默认值 {default!r}",
+                file=sys.stderr,
+            )
+    return settings
+
+
+def _edge_voice(voice: str) -> str:
+    """决定用哪个 edge 音色。
+
+    优先级：$EDGE_TTS_VOICE > script.json 里直接写的 edge 音色名
+    （形如 `zh-CN-YunyangNeural`）> 按语言取的默认音色（中文 = 云扬，男声·新闻播报）。
+    """
+    explicit = os.environ.get("EDGE_TTS_VOICE")
+    if explicit:
+        return explicit
+    value = str(voice or "").strip()
+    if value.endswith("Neural") and "-" in value:
+        return value
+    return EDGE_VOICE_BY_LANGUAGE.get(_melo_language(value), EDGE_VOICE_BY_LANGUAGE["ZH"])
+
+
 def _tts_candidates(preferred: str) -> list[str]:
     """TTS backends to try, best first, filtered to what is installed."""
     have = {n: shutil.which(n) for n in ("say", "espeak-ng", "espeak")}
-    # 本机装了 MeloTTS 就用它：espeak 的中文机械音太差，是这次要换掉的东西。
+    # edge-tts 音色最稳（默认选择）；没网/没装时回退到本地 MeloTTS；再不行才 espeak。
+    have["edge"] = find_edge_python() is not None
     have["melo"] = find_melo_python() is not None
     if preferred and preferred != "auto":
-        aliases = {"macos": "say", "espeakng": "espeak-ng", "melotts": "melo"}
+        aliases = {
+            "macos": "say",
+            "espeakng": "espeak-ng",
+            "melotts": "melo",
+            "edgetts": "edge",
+            "edge-tts": "edge",
+        }
         order = [aliases.get(preferred, preferred)]
     elif platform.system() == "Darwin" and have["say"]:
-        order = ["melo", "say", "espeak-ng", "espeak"]
+        order = ["edge", "melo", "say", "espeak-ng", "espeak"]
     else:
-        order = ["melo", "espeak-ng", "espeak", "say"]
+        order = ["edge", "melo", "espeak-ng", "espeak", "say"]
     return [n for n in order if have.get(n)]
 
 
@@ -451,6 +532,59 @@ class MeloTts(Tts):
             raise RuntimeError(f"MeloTTS 未产出 {intermediate}")
 
 
+class EdgeTts(Tts):
+    """edge-tts（微软在线 TTS）。韵律稳、中文自然，但合成时要联网。"""
+
+    def __init__(self, python: str, voice_name: str, settings: dict) -> None:
+        super().__init__("edge")
+        self.python = python
+        self.voice_name = voice_name
+        self.settings = settings
+        self.raw_dir: Path | None = None
+
+    @property
+    def name(self) -> str:
+        return f"edge ({self.voice_name})"
+
+    def intermediate_path(self, out_wav: Path) -> Path:
+        base = self.raw_dir if self.raw_dir is not None else out_wav.parent
+        return base / out_wav.name
+
+    def prepare(self, items: list[tuple[str, str]], work: Path, voice: str, rate: int) -> None:
+        self.raw_dir = work / "_edge_raw"
+        if self.raw_dir.exists():
+            shutil.rmtree(self.raw_dir)
+        self.raw_dir.mkdir(parents=True, exist_ok=True)
+        spec = {
+            "voice": self.voice_name,
+            **self.settings,
+            "jobs": [
+                {"id": line_id, "text": text, "out": str(self.raw_dir / f"{line_id}.wav")}
+                for line_id, text in items
+            ],
+        }
+        job_file = work / "edge_jobs.json"
+        job_file.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+        print(f"  edge: 预合成 {len(spec['jobs'])} 条（{self.name}）-> {self.raw_dir}")
+        res = run([self.python, str(EDGE_WORKER), "--jobs", str(job_file)])
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or "").strip()[-1200:]
+            raise RuntimeError(f"edge-tts failed (exit {res.returncode}): {detail}")
+        missing = [
+            line_id
+            for line_id, _ in items
+            if not (self.raw_dir / f"{line_id}.wav").exists()
+            or (self.raw_dir / f"{line_id}.wav").stat().st_size == 0
+        ]
+        if missing:
+            raise RuntimeError(f"edge-tts 没有产出这些行：{', '.join(missing[:6])}")
+
+    def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
+        # prepare() 已经一次性合成完了
+        if not intermediate.exists():
+            raise RuntimeError(f"edge-tts 未产出 {intermediate}")
+
+
 def _fallback_tts() -> Tts | None:
     """MeloTTS 装上了却跑挂时的退路：espeak-ng → espeak → macOS say。"""
     for backend in ("espeak-ng", "espeak", "say"):
@@ -468,23 +602,45 @@ def _fallback_tts() -> Tts | None:
     return None
 
 
+def _build_backend(backend: str, voice: str) -> Tts | None:
+    """按名字造一个后端实例；该后端不可用则返回 None。"""
+    if backend == "edge":
+        python = find_edge_python()
+        return EdgeTts(python, _edge_voice(voice), _edge_settings()) if python else None
+    if backend == "melo":
+        python = find_melo_python()
+        return MeloTts(python, _melo_language(voice), _melo_settings()) if python else None
+    if backend == "say":
+        return SayTts() if shutil.which("say") else None
+    if backend in ("espeak-ng", "espeak"):
+        if shutil.which(backend) is None:
+            return None
+        for candidate in ESPEAK_VOICE_CANDIDATES:
+            if run([backend, "-v", candidate, "-w", os.devnull, "test"]).returncode == 0:
+                return EspeakTts(backend, candidate)
+        # an English-accented reading beats no narration at all
+        if run([backend, "-v", "en", "-w", os.devnull, "test"]).returncode == 0:
+            return EspeakTts(backend, "en")
+        return None
+    return None
+
+
+def _fallback_tts(exclude: set[str], voice: str = "auto") -> Tts | None:
+    """按候选顺序找下一个能用的后端，跳过已经失败过的那些。"""
+    for backend in _tts_candidates("auto"):
+        if backend in exclude:
+            continue
+        candidate = _build_backend(backend, voice)
+        if candidate is not None:
+            return candidate
+    return None
+
+
 def detect_tts(preferred: str, voice: str = "auto") -> Tts | None:
     for backend in _tts_candidates(preferred):
-        if backend == "melo":
-            python = find_melo_python()
-            if python:
-                return MeloTts(python, _melo_language(voice), _melo_settings())
-            continue
-        if backend == "say":
-            return SayTts()
-        if backend in ("espeak-ng", "espeak"):
-            for candidate in ESPEAK_VOICE_CANDIDATES:
-                if run([backend, "-v", candidate, "-w", os.devnull, "test"]).returncode == 0:
-                    return EspeakTts(backend, candidate)
-            # an English-accented reading beats no narration at all
-            if run([backend, "-v", "en", "-w", os.devnull, "test"]).returncode == 0:
-                return EspeakTts(backend, "en")
-            continue
+        candidate = _build_backend(backend, voice)
+        if candidate is not None:
+            return candidate
     return None
 
 
@@ -567,22 +723,23 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
     scene_pause_frames = round(SCENE_PAUSE_MS / 1000.0 * fps)
 
     tts = None if force_no_audio else detect_tts(preferred_tts, script.voice)
-    if tts is not None:
+    lines = [(line_id, text) for _, _, line_id, text in script.flat]
+    failed_backends: set[str] = set()
+    while tts is not None:
         print(f"{script.id}: TTS = {tts.name}")
         try:
-            # 批量型后端（MeloTTS）在这里一次加载模型、把所有台词合成好；
+            # 批量型后端（edge-tts / MeloTTS）在这里一次性把所有台词合成好；
             # say / espeak 的这个钩子是空的，仍然逐行合成。
-            tts.prepare(
-                [(line_id, text) for _, _, line_id, text in script.flat],
-                work,
-                script.voice,
-                script.rate,
-            )
+            tts.prepare(lines, work, script.voice, script.rate)
+            break
         except RuntimeError as error:
+            # 换下一个后端继续尝试（edge-tts 没网 → MeloTTS 本地 → espeak），
+            # 全部失败才退化成纯字幕版。
             print(f"warning: {tts.name} 不可用：{error}", file=sys.stderr)
-            tts = _fallback_tts()
+            failed_backends.add(tts.backend)
+            tts = _fallback_tts(failed_backends, script.voice)
             if tts is not None:
-                print(f"{script.id}: TTS = {tts.name}（回退）", file=sys.stderr)
+                print(f"{script.id}: 改用 {tts.name}（回退）", file=sys.stderr)
     if tts is None:
         print(
             f"{script.id}: no TTS available -> generating silent clips; "
@@ -946,7 +1103,7 @@ def main() -> int:
     ap.add_argument("--no-audio", action="store_true",
                     help="skip TTS entirely and generate silent clips")
     ap.add_argument("--tts", default="auto",
-                    help="auto | melo | say | espeak-ng | espeak")
+                    help="auto | edge | melo | say | espeak-ng | espeak")
     args = ap.parse_args()
 
     script = Script(Path(args.script))

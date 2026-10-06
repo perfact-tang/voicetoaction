@@ -52,11 +52,11 @@ ffprobe -version | head -1   # 时间轴测量依赖它
 fc-list :lang=zh 2>/dev/null | head -3 || echo "缺 fontconfig"
 # 缺字体时：sudo apt-get install -y fonts-noto-cjk
 
-# 3. 语音合成：优先 MeloTTS（本机神经网络 TTS，中文自然），没有才回退 espeak
-"${MELOTTS_PYTHON:-$HOME/melotts-venv/bin/python}" -c "import melo; print('MeloTTS OK')" 2>/dev/null \
-  || echo "无 MeloTTS -> 会回退 espeak-ng（中文是机械音）"
-command -v espeak-ng || command -v espeak || command -v say || echo "无 TTS -> 纯字幕模式"
-# 装 MeloTTS（无需 sudo，约 1.5GB 含模型）：bash scripts/install-melotts.sh
+# 3. 语音合成：默认 edge-tts（微软在线 TTS，音色平稳），没网时回退本地 MeloTTS
+"${AISKILLS_TTS_PYTHON:-$HOME/melotts-venv/bin/python}" -c "import edge_tts; print('edge-tts OK')" 2>/dev/null \
+  || echo "无 edge-tts -> 会回退本地 MeloTTS / espeak-ng"
+command -v espeak-ng || command -v espeak || command -v say || echo "无兜底 TTS -> 纯字幕模式"
+# 装两个后端（无需 sudo）：bash scripts/install-melotts.sh
 # 需要旁白但连 espeak 也没有时：sudo apt-get install -y espeak-ng
 
 # 4. 工作根目录
@@ -82,70 +82,75 @@ DSH_PERMISSION_MODE=danger-full-access \
 
 如果 `node`、`ffmpeg`、`ffprobe` 任一缺失 → 立即停止并报告，不要继续。
 
-### 配音后端（MeloTTS 优先，自动判定）
+### 配音后端（自动判定：edge-tts → MeloTTS → espeak）
 
-`build_audio.py` **自己会判定本机有没有 MeloTTS**，不需要你在 Step4 里做判断：
+`build_audio.py` **自己会挑后端**，不需要你在 Step4 里做判断。顺序是：
+
+| 顺序 | 后端 | 说明 |
+|---|---|---|
+| 1 | **`edge`** | edge-tts（微软在线 TTS）。默认音色 **`zh-CN-YunyangNeural`**（男声·新闻播报，平稳）。韵律稳、中文自然，31 条台词约 **23 秒**合成完。**需要联网。** |
+| 2 | `melo` | 本地 MeloTTS，离线兜底（edge 没网/没装时自动用） |
+| 3 | `espeak-ng` / `say` | 最后的机械音兜底 |
+| 4 | 无 | 纯字幕版，**必须在报告里写明** |
 
 ```bash
-# 想自己确认一下（可选）
+# 想自己确认一下实际会用哪个（可选）
 python3 - <<'EOF'
 import importlib.util
 spec = importlib.util.spec_from_file_location("ba", "scripts/build_audio.py")
 ba = importlib.util.module_from_spec(spec); spec.loader.exec_module(ba)
+print("edge-tts 解释器:", ba.find_edge_python() or "（无）")
 print("MeloTTS 解释器:", ba.find_melo_python() or "（无）")
-print("实际会用的后端:", (ba.detect_tts("auto", "auto") or type("x", (), {"name": "none"})()).name)
+print("后端顺序:", ba._tts_candidates("auto"))
+print("实际会用:", (ba.detect_tts("auto", "auto") or type("x", (), {"name": "none"})()).name)
 EOF
 ```
 
-判定顺序（`find_melo_python()`）：
+**判定标准是「这个解释器能不能 `import edge_tts` / `import melo`」**，不是「目录存不存在」，
+所以候选路径写错没有副作用。探测顺序：`$AISKILLS_TTS_PYTHON` → `$MELOTTS_PYTHON` →
+当前解释器 → `PATH` 上的 python3/python → `~/melotts-venv` 等约定位置。
 
-1. 环境变量 `MELOTTS_PYTHON`（或 `AISKILLS_MELOTTS_PYTHON`）指定的解释器；
-2. 跑 `build_audio.py` 的那个 `python3`；
-3. `PATH` 上的 `python3` / `python`；
-4. 约定安装位置：`~/melotts-venv`、`~/.local/share/melotts/venv`、`~/.venvs/melotts`、`~/melotts/.venv`。
+> ⚠️ **报告里必须写清楚实际用了哪个后端**（cue sheet 的「配音」一行）。如果出现
+> `TTS = espeak-ng (cmn)`，说明前两个后端都没起来 —— 先跑
+> `bash scripts/install-melotts.sh --check` 看是哪一个，再检查网络。
 
-**判定标准是「这个解释器能不能 `import melo`」**，不是「目录存不存在」，所以路径写错
-不会有副作用，最多退回到下一个候选。
+**换后端失败会自动降级**：`edge` 拉不动（断网）→ 自动换 `melo`（本地）→ 再不行换 `espeak`，
+每一步都会在日志里打 warning，视频照常产出。
 
-| 情况 | 行为 |
-|---|---|
-| 找到 MeloTTS | `TTS = melo (ZH, speaker 0, speed 1)` —— 一次性加载模型，把全部台词合成完再拼轨 |
-| 没找到 | 回退 `espeak-ng (cmn)`；macOS 上回退 `say` |
-| MeloTTS 装上了但合成报错 | 打印 warning，退回 `espeak-ng`，视频照常产出（报告里要写明） |
-| 什么 TTS 都没有 | 纯字幕版，**必须在报告里写明** |
-
-> ⚠️ **报告里必须写清楚实际用了哪个后端。** 如果 cue sheet 里是 `TTS = espeak-ng (cmn)`
-> 而不是 `melo (...)`，说明 MeloTTS 没被找到或跑挂了 —— 先跑
-> `bash scripts/install-melotts.sh --check` 看是哪一种。
-
-**worker 自带的两道保险**（`melo_tts.py`，不用你操心）：
-
-1. **静音重试**：MeloTTS 偶发会输出「长度正确、但采样全是 0」的波形（实测 31 行里中招 6 行，
-   峰值 −91dB）。每条合成完都会检查峰值电平和有效样本占比，不合格就**换随机种子重试**
-   （默认 4 次），全部失败才报错。
-2. **不在逗号处断**：MeloTTS 会在 `，` 处切句、段与段之间只插 **0.05 秒**停顿（正常逗号停顿
-   是 0.2–0.3 秒），听起来就是「词没说完就下一句」。worker 默认先把行内 `，`/`,`/`；`/`;`
-   去掉，让模型自己断句；万一还有别的切点，就用自己的 0.25 秒停顿拼接。
-
-**常用调参**（环境变量，`build_audio.py` 会读）：
+**edge-tts 调参**（环境变量）：
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `MELOTTS_SPEAKER` | `0` | 音色 id（**这个中文模型有 256 个**）；语气不对先换这个 |
-| `MELOTTS_SPEED` | `1.0` | 语速（夹在 0.5–2.0） |
-| `MELOTTS_SDP_RATIO` | `0.2` | 韵律随机性；**调低更平稳**，`0` 最稳最「念稿」 |
-| `MELOTTS_NOISE_SCALE` | `0.6` | 语调起伏；调低更平 |
-| `MELOTTS_RETRIES` | `4` | 静音重试次数 |
-| `MELOTTS_GAP_S` | `0.25` | 残留切点处的停顿秒数 |
-| `MELOTTS_STRIP_PUNCT` | `，,；;` | 合成前去掉的行内标点；设成空值 = 不去 |
-| `MELOTTS_PYTHON` | 自动探测 | 指定带 MeloTTS 的解释器 |
+| `EDGE_TTS_VOICE` | `zh-CN-YunyangNeural` | 音色；也可直接在 `script.json` 的 `voice` 里写 `zh-CN-XiaoxiaoNeural` 这种 |
+| `EDGE_TTS_RATE` | `+0%` | 语速，如 `+10%` / `-5%` |
+| `EDGE_TTS_PITCH` | `+0Hz` | 音高，如 `-2Hz` |
+| `EDGE_TTS_VOLUME` | `+0%` | 音量（后面还有统一响度归一化） |
+| `EDGE_TTS_RETRIES` | `3` | 网络抖动重试次数 |
+
+备选音色（`edge-tts --list-voices | grep zh-CN` 看全部）：`zh-CN-XiaoxiaoNeural`（女·温暖）、
+`zh-CN-YunxiNeural`（男·活泼）、`zh-CN-YunjianNeural`（男·激情）、`zh-CN-liaoning-XiaobeiNeural`（方言）。
+
+**MeloTTS 兜底时的两道保险**（`melo_tts.py`，不用你操心）：
+
+1. **静音 + 换音色重试**：MeloTTS 会输出「长度正确、但采样几乎全是 0」的波形。这不是随机现象
+   —— 换种子、把 `sdp_ratio`/`noise_scale` 归零、换 torch 版本都不改变结果，决定它的是
+   「文本 × speaker」。实测 24 个音色里只有 **speaker 1** 能稳定通过，所以默认用它，
+   失败还会自动换兜底音色。
+2. **不在逗号处断**：MeloTTS 会在 `，` 处切句、段间只插 **0.05 秒**（正常逗号停顿 0.2–0.3 秒），
+   听起来就是吞字。worker 会先去掉行内 `，`/`,`/`；`/`;`，残留切点用自己的 0.25 秒停顿拼接。
+   （edge-tts 不需要这个处理，它自己会给 0.2–0.3 秒的自然停顿。）
+
+MeloTTS 调参：`MELOTTS_SPEAKER`（默认 1）、`MELOTTS_SPEED`（1.0）、`MELOTTS_SDP_RATIO`（0.2）、
+`MELOTTS_NOISE_SCALE`（0.6）、`MELOTTS_STRIP_PUNCT`（`，,；;`）、`MELOTTS_GAP_S`（0.25）、
+`MELOTTS_FALLBACK_SPEAKERS`（`2,3,4,5,6`）。试听音色用
+`assets/engine/scripts/melo_audition.py`。
 
 - 安装/修复：`bash scripts/install-melotts.sh`（无需 sudo；优先用 **uv 管理的 Python**，
   这样系统 python 升级（如 Ubuntu 26.04 删掉 3.12）不会把 venv 打坏）。
 - 体检：`bash scripts/install-melotts.sh --check`。
 - 时间轴是从**实测音轨**反推的，改语速只会让视频变长/变短、不会让字幕错位；但总时长超过
   240s、单场超过 18s 会触发节奏护栏（脚本以退出码 1 结束），所以调完要看 Step4 的输出。
-- 想强制某个后端：`--tts melo` / `--tts espeak-ng` / `--tts say`。
+- 想强制某个后端：`--tts edge` / `--tts melo` / `--tts espeak-ng` / `--tts say`。
 
 ---
 
@@ -308,7 +313,7 @@ python3 scripts/build_audio.py
 没有 TTS 时脚本会打印 `no TTS available -> generating silent clips`，
 此时视频是**纯字幕**版（无旁白），LRC 仍然准确。要在报告里写明这一点。
 
-> 想强制纯字幕版：加 `--no-audio`。想指定后端：`--tts melo` / `--tts espeak-ng`。
+> 想强制纯字幕版：加 `--no-audio`。想指定后端：`--tts edge` / `--tts melo` / `--tts espeak-ng`。
 > 换后端或改 `MELOTTS_*` 参数后，**时间轴和字幕都会变**，必须重跑 Step4 再进 Step5 渲染。
 
 ---

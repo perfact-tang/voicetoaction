@@ -109,15 +109,42 @@ EOF
 
 | 情况 | 行为 |
 |---|---|
-| 找到 MeloTTS | `TTS = melo (ZH, speed 1)` —— 一次性加载模型，把全部台词合成完再拼轨 |
+| 找到 MeloTTS | `TTS = melo (ZH, speaker 0, speed 1)` —— 一次性加载模型，把全部台词合成完再拼轨 |
 | 没找到 | 回退 `espeak-ng (cmn)`；macOS 上回退 `say` |
 | MeloTTS 装上了但合成报错 | 打印 warning，退回 `espeak-ng`，视频照常产出（报告里要写明） |
 | 什么 TTS 都没有 | 纯字幕版，**必须在报告里写明** |
 
-- 只装一次：`bash scripts/install-melotts.sh`（无 sudo，装到 `$HOME/melotts-venv`）。
-- 语速用环境变量 `MELOTTS_SPEED=1.1` 调（默认 1.0）。时间轴是从**实测音轨**反推的，
-  改语速只会让视频变长/变短，不会让字幕错位；但总时长超过 240s、单场超过 18s 会触发
-  节奏护栏（脚本以退出码 1 结束），所以调语速后要看 Step4 的输出。
+> ⚠️ **报告里必须写清楚实际用了哪个后端。** 如果 cue sheet 里是 `TTS = espeak-ng (cmn)`
+> 而不是 `melo (...)`，说明 MeloTTS 没被找到或跑挂了 —— 先跑
+> `bash scripts/install-melotts.sh --check` 看是哪一种。
+
+**worker 自带的两道保险**（`melo_tts.py`，不用你操心）：
+
+1. **静音重试**：MeloTTS 偶发会输出「长度正确、但采样全是 0」的波形（实测 31 行里中招 6 行，
+   峰值 −91dB）。每条合成完都会检查峰值电平和有效样本占比，不合格就**换随机种子重试**
+   （默认 4 次），全部失败才报错。
+2. **不在逗号处断**：MeloTTS 会在 `，` 处切句、段与段之间只插 **0.05 秒**停顿（正常逗号停顿
+   是 0.2–0.3 秒），听起来就是「词没说完就下一句」。worker 默认先把行内 `，`/`,`/`；`/`;`
+   去掉，让模型自己断句；万一还有别的切点，就用自己的 0.25 秒停顿拼接。
+
+**常用调参**（环境变量，`build_audio.py` 会读）：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `MELOTTS_SPEAKER` | `0` | 音色 id（**这个中文模型有 256 个**）；语气不对先换这个 |
+| `MELOTTS_SPEED` | `1.0` | 语速（夹在 0.5–2.0） |
+| `MELOTTS_SDP_RATIO` | `0.2` | 韵律随机性；**调低更平稳**，`0` 最稳最「念稿」 |
+| `MELOTTS_NOISE_SCALE` | `0.6` | 语调起伏；调低更平 |
+| `MELOTTS_RETRIES` | `4` | 静音重试次数 |
+| `MELOTTS_GAP_S` | `0.25` | 残留切点处的停顿秒数 |
+| `MELOTTS_STRIP_PUNCT` | `，,；;` | 合成前去掉的行内标点；设成空值 = 不去 |
+| `MELOTTS_PYTHON` | 自动探测 | 指定带 MeloTTS 的解释器 |
+
+- 安装/修复：`bash scripts/install-melotts.sh`（无需 sudo；优先用 **uv 管理的 Python**，
+  这样系统 python 升级（如 Ubuntu 26.04 删掉 3.12）不会把 venv 打坏）。
+- 体检：`bash scripts/install-melotts.sh --check`。
+- 时间轴是从**实测音轨**反推的，改语速只会让视频变长/变短、不会让字幕错位；但总时长超过
+  240s、单场超过 18s 会触发节奏护栏（脚本以退出码 1 结束），所以调完要看 Step4 的输出。
 - 想强制某个后端：`--tts melo` / `--tts espeak-ng` / `--tts say`。
 
 ---
@@ -281,7 +308,8 @@ python3 scripts/build_audio.py
 没有 TTS 时脚本会打印 `no TTS available -> generating silent clips`，
 此时视频是**纯字幕**版（无旁白），LRC 仍然准确。要在报告里写明这一点。
 
-> 想强制纯字幕版：加 `--no-audio`。想指定后端：`--tts espeak-ng`。
+> 想强制纯字幕版：加 `--no-audio`。想指定后端：`--tts melo` / `--tts espeak-ng`。
+> 换后端或改 `MELOTTS_*` 参数后，**时间轴和字幕都会变**，必须重跑 Step4 再进 Step5 渲染。
 
 ---
 
@@ -292,11 +320,13 @@ cd "$DOC_DIR/engine"
 # 首次运行需要下载 Headless Chrome（约 100MB）
 npx remotion browser ensure
 npx remotion render src/index.ts Explainer out/movie.mp4 \
-    --codec=h264 --crf=17 --pixel-format=yuv420p --concurrency=4
+    --codec=h264 --crf=17 --pixel-format=yuv420p --concurrency=8
 ```
 
-- `--concurrency` 按机器来：4 核用 4，内存 8GB 以上可用 6–8，越小越省内存。
-- 渲染耗时长，允许后台运行，但**必须在同一回合内取回结果**（见 1.5）。
+- `--concurrency` **直接决定总时长**：每帧都在算 SVG 滤镜，是纯 CPU 开销。
+  12 核机器实测 **8 比 4 快约 40%**（5038 帧 @8 = 66 分钟；3652 帧 @4 = 64 分钟）。
+  取 `min(8, 核数 - 2)`；内存 8GB 以下减半。渲染期间别同时跑别的重活。
+- 渲染耗时长（约 1 小时），允许后台运行，但**必须在同一回合内取回结果**（见 1.5）。
 - 完成后把成品复制到工作目录：
   ```bash
   cp out/movie.mp4 "$DOC_DIR/movie.mp4"

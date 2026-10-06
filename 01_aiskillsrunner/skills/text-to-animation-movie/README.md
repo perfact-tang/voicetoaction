@@ -88,13 +88,47 @@ Firebase 服务账号密钥默认路径
 视频照样产出。
 
 ```bash
-bash scripts/install-melotts.sh                    # 无需 sudo，装到 $HOME/melotts-venv
+bash scripts/install-melotts.sh                    # 安装/修复（无需 sudo，优先用 uv 管理的 Python）
+bash scripts/install-melotts.sh --check            # 只体检：解释器版本、能不能 import melo
 python3 scripts/build_audio.py --tts melo          # 强制 MeloTTS
-MELOTTS_SPEED=1.1 python3 scripts/build_audio.py   # 语速（默认 1.0）
 ```
 
-实测（12 核 CPU、ZH 模型）：模型加载 17–33s，之后每条台词 1–4s，约 3.7–4.6 字/秒 ——
-与 `--dry-run` 用的 3.55 字/秒估算接近，所以总时长不会因为换 TTS 而失控。
+**worker 的两道保险**（`assets/engine/scripts/melo_tts.py`）：
+
+1. **静音检测 + 换音色兜底**。MeloTTS 会输出「长度正确、但采样几乎全是 0」的波形。
+   实测这不是随机现象：**换种子、把 `sdp_ratio`/`noise_scale` 归零、关掉 BERT、换 torch
+   版本（2.2.2 vs 2.14.1 输出逐位相同）都不改变结果**；决定它的是「文本 × speaker」这个
+   组合 —— 同一句在 speaker 1 上有声、speaker 0 上是静音。在 24 个音色上筛查 10 条难句，
+   **只有 speaker 1 全部通过**，其余最多通过 2/10。所以默认用 speaker 1，并且主音色静音时
+   自动换兜底音色（会在日志里标出来）。
+2. **逗号不再被它切开**。MeloTTS 会在 `，` 处切句、段间只插 **0.05 秒**停顿（正常逗号停顿
+   是 0.2–0.3 秒），听起来像吞字。worker 默认先把行内 `，`/`,`/`；`/`;` 去掉让模型自己断句，
+   残留切点用自己的 0.25 秒停顿拼接。
+
+**可调参数**（环境变量，`build_audio.py` 读取后写进 worker 的 jobs.json）：
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `MELOTTS_SPEAKER` | `1` | 音色 id（0–255）。`scripts/melo_audition.py` 可试听 |
+| `MELOTTS_FALLBACK_SPEAKERS` | `2,3,4,5,6` | 主音色静音时的兜底音色 |
+| `MELOTTS_SPEED` | `1.0` | 语速（夹在 0.5–2.0） |
+| `MELOTTS_SDP_RATIO` | `0.2` | 韵律随机性；调低更平稳，`0` 最稳 |
+| `MELOTTS_NOISE_SCALE` | `0.6` | 语调起伏；调低更平 |
+| `MELOTTS_ATTEMPTS` | `2` | 每个音色试几次 |
+| `MELOTTS_GAP_S` | `0.25` | 残留切点处的停顿秒数 |
+| `MELOTTS_STRIP_PUNCT` | `，,；;` | 合成前去掉的行内标点；空值 = 不去 |
+
+试听挑音色：
+
+```bash
+~/melotts-venv/bin/python assets/engine/scripts/melo_audition.py \
+  --text "九种模式不是九选一，一家公司常同时用好几种。" \
+  --speakers 0-32:1 --outdir /tmp/melotts-audition
+# 产出 spk000.wav…、all.wav（连续听）、index.txt（含 F0 起伏，越小越平稳）
+```
+
+实测（12 核 CPU、ZH 模型）：模型加载 17–33s，之后每条台词 1–4s，约 4–5 字/秒 ——
+与 `--dry-run` 用的 3.55 字/秒估算接近，总时长不会因为换 TTS 而失控。
 
 ## 运行
 

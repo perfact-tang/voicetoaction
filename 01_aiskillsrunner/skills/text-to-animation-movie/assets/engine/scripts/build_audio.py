@@ -78,11 +78,22 @@ ESPEAK_VOICE_CANDIDATES = ["cmn", "zh", "zh-cn"]
 # driven as a subprocess through scripts/melo_tts.py with whichever interpreter
 # on this machine can `import melo`.
 MELO_WORKER = Path(__file__).resolve().parent / "melo_tts.py"
-# speed=1.0 is MeloTTS' natural pace; tune with MELOTTS_SPEED=1.1 etc.
-MELO_SPEED_ENV = "MELOTTS_SPEED"
-MELO_SPEED_DEFAULT = 1.0
-MELO_SPEED_MIN = 0.5
-MELO_SPEED_MAX = 2.0
+# MeloTTS 全部参数都能用 MELOTTS_* 环境变量覆盖；下面是默认值。
+MELO_DEFAULTS: dict = {
+    "speed": 1.0,
+    # speaker 0 实测会在多行上合成出「长度正确但几乎全 0」的静音（见 melo_tts.py 说明）；
+    # 改成 1 之后同样的脚本 31/31 行都有声。想换音色用 scripts/melo_audition.py 试听。
+    "speaker": 1,
+    "fallback_speakers": "2,3,4,5,6",  # 主音色静音时依次换这些
+    "attempts": 2,         # 每个音色试几次（换种子，防偶发）
+    "sdp_ratio": 0.2,      # 越低越平（0 = 只走确定性时长预测，最稳、最「念稿」）
+    "noise_scale": 0.6,    # 越低语调起伏越小
+    "noise_scale_w": 0.8,
+    "gap_s": 0.25,         # 残留切点处我们自己插的停顿（MeloTTS 内部只插 0.05s）
+    "seed": 1234,
+    "strip_punct": "，,；;",  # 行内标点留着会被它切句 + 只插 50ms → 听起来像吞字
+}
+MELO_ENV_PREFIX = "MELOTTS_"
 
 
 # --------------------------------------------------------------------------
@@ -247,14 +258,33 @@ def _melo_language(voice: str) -> str:
     return table.get(str(voice or "").strip().lower(), "ZH")
 
 
-def _melo_speed() -> float:
-    """MeloTTS 语速（MELOTTS_SPEED，默认 1.0）；时间轴由实测音轨反推，改它不会让字幕错位。"""
-    raw = os.environ.get(MELO_SPEED_ENV)
-    try:
-        speed = float(raw) if raw else MELO_SPEED_DEFAULT
-    except ValueError:
-        speed = MELO_SPEED_DEFAULT
-    return max(MELO_SPEED_MIN, min(MELO_SPEED_MAX, speed))
+def _melo_settings() -> dict:
+    """MeloTTS 参数 = MELO_DEFAULTS + MELOTTS_* 环境变量覆盖。
+
+    例：MELOTTS_SPEAKER=7 MELOTTS_SPEED=1.1 MELOTTS_SDP_RATIO=0.1
+    想关掉「去掉行内标点」：MELOTTS_STRIP_PUNCT=（设成空值）。
+    """
+    settings = dict(MELO_DEFAULTS)
+    for key, default in MELO_DEFAULTS.items():
+        raw = os.environ.get(f"{MELO_ENV_PREFIX}{key.upper()}")
+        if raw is None:
+            continue
+        try:
+            if isinstance(default, bool):
+                settings[key] = raw.strip().lower() in ("1", "true", "yes", "on")
+            elif isinstance(default, int):
+                settings[key] = int(float(raw))
+            elif isinstance(default, float):
+                settings[key] = float(raw)
+            else:
+                settings[key] = raw
+        except ValueError:
+            print(
+                f"warning: {MELO_ENV_PREFIX}{key.upper()}={raw!r} 解析失败，用默认值 {default!r}",
+                file=sys.stderr,
+            )
+    settings["speed"] = max(0.5, min(2.0, float(settings["speed"])))
+    return settings
 
 
 def _tts_candidates(preferred: str) -> list[str]:
@@ -300,8 +330,13 @@ class Tts:
         """
 
     def intermediate_path(self, out_wav: Path) -> Path:
-        """Where `synthesize` writes, before the ffmpeg normalisation pass."""
-        return out_wav
+        """`synthesize` 写这里，之后由 `render` 统一转码成 out_wav。
+
+        必须和 out_wav 是**不同**文件：ffmpeg 8（Ubuntu 26.04 升级后）会直接拒绝
+        「Output ... same as Input」，旧版 ffmpeg 容忍同文件。espeak 原来写的就是
+        out_wav 本身，升级后一回退到 espeak 就崩，所以这里统一改成独立中间文件。
+        """
+        return out_wav.with_name(f"{out_wav.stem}.raw.wav")
 
     def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
         raise NotImplementedError
@@ -329,6 +364,7 @@ class SayTts(Tts):
         super().__init__("say")
 
     def intermediate_path(self, out_wav: Path) -> Path:
+        # say 输出 aiff，本来就和 out_wav 不同名，保持原样
         return out_wav.with_suffix(".aiff")
 
     def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
@@ -358,16 +394,19 @@ class EspeakTts(Tts):
 class MeloTts(Tts):
     """Local MeloTTS, driven as a subprocess by an interpreter that has it."""
 
-    def __init__(self, python: str, language: str, speed: float) -> None:
+    def __init__(self, python: str, language: str, settings: dict) -> None:
         super().__init__("melo")
         self.python = python
         self.language = language
-        self.speed = speed
+        self.settings = settings
         self.raw_dir: Path | None = None
 
     @property
     def name(self) -> str:
-        return f"melo ({self.language}, speed {self.speed:g})"
+        return (
+            f"melo ({self.language}, speaker {self.settings['speaker']}, "
+            f"speed {float(self.settings['speed']):g})"
+        )
 
     def intermediate_path(self, out_wav: Path) -> Path:
         # Never point this at out_wav: `render` hands it to ffmpeg as the input,
@@ -382,8 +421,7 @@ class MeloTts(Tts):
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         spec = {
             "language": self.language,
-            "speed": self.speed,
-            "speaker": 0,
+            **self.settings,
             "jobs": [
                 {"id": line_id, "text": text, "out": str(self.raw_dir / f"{line_id}.wav")}
                 for line_id, text in items
@@ -392,14 +430,18 @@ class MeloTts(Tts):
         job_file = work / "melo_jobs.json"
         job_file.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
         print(
-            f"  melo: 预合成 {len(spec['jobs'])} 条"
-            f"（{self.language}, speed {self.speed:g}）-> {self.raw_dir}"
+            f"  melo: 预合成 {len(spec['jobs'])} 条（{self.name}）-> {self.raw_dir}"
         )
         res = run([self.python, str(MELO_WORKER), "--jobs", str(job_file)])
         if res.returncode != 0:
-            detail = (res.stderr or res.stdout or "").strip()[-800:]
+            detail = (res.stderr or res.stdout or "").strip()[-1200:]
             raise RuntimeError(f"MeloTTS failed (exit {res.returncode}): {detail}")
-        missing = [line_id for line_id, _ in items if not (self.raw_dir / f"{line_id}.wav").exists()]
+        missing = [
+            line_id
+            for line_id, _ in items
+            if not (self.raw_dir / f"{line_id}.wav").exists()
+            or (self.raw_dir / f"{line_id}.wav").stat().st_size == 0
+        ]
         if missing:
             raise RuntimeError(f"MeloTTS 没有产出这些行：{', '.join(missing[:6])}")
 
@@ -431,7 +473,7 @@ def detect_tts(preferred: str, voice: str = "auto") -> Tts | None:
         if backend == "melo":
             python = find_melo_python()
             if python:
-                return MeloTts(python, _melo_language(voice), _melo_speed())
+                return MeloTts(python, _melo_language(voice), _melo_settings())
             continue
         if backend == "say":
             return SayTts()

@@ -1,0 +1,9 @@
+{
+  "name": "text-to-animation-movie-scripts",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Firebase upload helpers for the text-to-animation-movie skill",
+  "dependencies": {
+    "firebase-admin": "^13.0.2"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "sketch-explainer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hand-drawn whiteboard explainer engine (Remotion)",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/cli": "4.0.533",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.533"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "bundle": "remotion bundle",
+    "typecheck": "tsc --noEmit"
+  }
+}

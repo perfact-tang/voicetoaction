@@ -115,7 +115,8 @@ Skill 名称复用原有字段 `applicationName`（`deepseek_harness` 类型必�
 - `google_workspace_studio`（含旧记录）：把 `googleDriveUrl` 反解出的目录 ID 当 Google Doc 输出目录。
 - `deepseek_harness`：不使用 Google Drive，改为本地 STT + 用 `applicationName`（`--skill`）和
   `skillZipUrl`（`--installurl`）调 aiskillsrunner；并拿 `skillActiveVersion` 与本地版本比对，
-  不一致就删除本地旧版本重新下载安装。详见根目录 `README.md` 的「Skills 流程」。
+  **CMS 版本更新才**删除本地旧版本重新下载安装（本地不低于是跳过）。详见根目录
+  `README.md` 的「Skills 流程」。
 
 另外 App 会把 FCM 设备令牌写到 `users/{uid}/fcmTokens/{token}`（规则：仅本人可读写），
 后端 task 结束后用它推送「执行完毕」通知。

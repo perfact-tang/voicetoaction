@@ -14,10 +14,11 @@ the same pipeline drives any number of videos:
       -> out/<id>-timing.json         full diagnostics (onsets, durations)
 
 Steps
-  1. Render each narration line to speech with whatever TTS is available
-     (macOS `say`, or espeak-ng/espeak on Linux). If no TTS exists, or
-     `--no-audio` is given, silent clips of the right length are generated
-     instead so the video still runs as subtitles-only.
+  1. Render each narration line to speech with whatever TTS is available:
+     **MeloTTS first** when a local install is found (neural, much more natural
+     Chinese than espeak), then macOS `say`, then espeak-ng/espeak. If no TTS
+     exists, or `--no-audio` is given, silent clips of the right length are
+     generated instead so the video still runs as subtitles-only.
   2. Concatenate every line into one continuous track; the trailing silence each
      clip carries becomes the breathing room between lines, so audio and
      on-screen timing come from a single source.
@@ -33,6 +34,10 @@ Usage:
   python3 scripts/build_audio.py --dry-run          # pacing check, no synthesis
   python3 scripts/build_audio.py --no-audio         # force subtitles-only
   python3 scripts/build_audio.py --tts espeak-ng    # force a TTS backend
+  python3 scripts/build_audio.py --tts melo         # force the local MeloTTS
+
+MeloTTS is auto-detected: any interpreter that can `import melo` counts, see
+find_melo_python(). Install it with scripts/install-melotts.sh (no sudo needed).
 """
 
 from __future__ import annotations
@@ -67,6 +72,17 @@ MAX_CLIP_SECONDS = 20.0     # silent fallback clips are capped at this
 
 # espeak-ng is asked for these languages, in order, until one works.
 ESPEAK_VOICE_CANDIDATES = ["cmn", "zh", "zh-cn"]
+
+# MeloTTS: local neural TTS. It cannot be imported by this script's own
+# interpreter (a bare system python3 with no third-party packages), so it is
+# driven as a subprocess through scripts/melo_tts.py with whichever interpreter
+# on this machine can `import melo`.
+MELO_WORKER = Path(__file__).resolve().parent / "melo_tts.py"
+# speed=1.0 is MeloTTS' natural pace; tune with MELOTTS_SPEED=1.1 etc.
+MELO_SPEED_ENV = "MELOTTS_SPEED"
+MELO_SPEED_DEFAULT = 1.0
+MELO_SPEED_MIN = 0.5
+MELO_SPEED_MAX = 2.0
 
 
 # --------------------------------------------------------------------------
@@ -146,23 +162,126 @@ def han_len(text: str) -> int:
 # --------------------------------------------------------------------------
 
 
+_melo_python: str | None = None
+_melo_probed = False
+
+
+def _melo_python_candidates() -> list[str]:
+    """Interpreters that might have MeloTTS, most specific first."""
+    home = Path.home()
+    raw = [
+        os.environ.get("MELOTTS_PYTHON"),
+        os.environ.get("AISKILLS_MELOTTS_PYTHON"),
+        sys.executable,
+        shutil.which("python3"),
+        shutil.which("python"),
+        str(home / "melotts-venv" / "bin" / "python"),
+        str(home / ".local" / "share" / "melotts" / "venv" / "bin" / "python"),
+        str(home / ".venvs" / "melotts" / "bin" / "python"),
+        str(home / "melotts" / ".venv" / "bin" / "python"),
+    ]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in raw:
+        if not item:
+            continue
+        candidate = str(item)
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered.append(candidate)
+    return ordered
+
+
+def find_melo_python() -> str | None:
+    """Path of an interpreter that can `import melo`, or None if there is none.
+
+    Probe order: $MELOTTS_PYTHON → $AISKILLS_MELOTTS_PYTHON → the interpreter
+    running this script → python3/python on PATH → the conventional venv
+    locations. The first one that actually imports MeloTTS wins, so a stale
+    path on that list costs a fraction of a second and nothing else.
+    """
+    global _melo_python, _melo_probed
+    if not _melo_probed:
+        _melo_probed = True
+        for candidate in _melo_python_candidates():
+            if not (os.path.isfile(candidate) and os.access(candidate, os.X_OK)):
+                continue
+            if run([candidate, "-c", "import melo"]).returncode == 0:
+                _melo_python = candidate
+                break
+    return _melo_python
+
+
+def _melo_language(voice: str) -> str:
+    """script.json 的 voice 顺便兼职 MeloTTS 的语言名（默认中文）。
+
+    MeloTTS 支持 ZH / ZH_MIX_EN / EN / JP / KR / ES / FR；这里认不出来的值一律
+    回落到 ZH，因为本 skill 的台词默认就是中文。
+    """
+    table = {
+        "": "ZH",
+        "auto": "ZH",
+        "default": "ZH",
+        "zh": "ZH",
+        "cn": "ZH",
+        "zh-cn": "ZH",
+        "chinese": "ZH",
+        "中文": "ZH",
+        "zh_mix_en": "ZH_MIX_EN",
+        "zh-mix-en": "ZH_MIX_EN",
+        "mix": "ZH_MIX_EN",
+        "en": "EN",
+        "english": "EN",
+        "jp": "JP",
+        "ja": "JP",
+        "japanese": "JP",
+        "kr": "KR",
+        "ko": "KR",
+        "korean": "KR",
+        "es": "ES",
+        "spanish": "ES",
+        "fr": "FR",
+        "french": "FR",
+    }
+    return table.get(str(voice or "").strip().lower(), "ZH")
+
+
+def _melo_speed() -> float:
+    """MeloTTS 语速（MELOTTS_SPEED，默认 1.0）；时间轴由实测音轨反推，改它不会让字幕错位。"""
+    raw = os.environ.get(MELO_SPEED_ENV)
+    try:
+        speed = float(raw) if raw else MELO_SPEED_DEFAULT
+    except ValueError:
+        speed = MELO_SPEED_DEFAULT
+    return max(MELO_SPEED_MIN, min(MELO_SPEED_MAX, speed))
+
+
 def _tts_candidates(preferred: str) -> list[str]:
     """TTS backends to try, best first, filtered to what is installed."""
     have = {n: shutil.which(n) for n in ("say", "espeak-ng", "espeak")}
+    # 本机装了 MeloTTS 就用它：espeak 的中文机械音太差，是这次要换掉的东西。
+    have["melo"] = find_melo_python() is not None
     if preferred and preferred != "auto":
-        aliases = {"macos": "say", "espeakng": "espeak-ng"}
+        aliases = {"macos": "say", "espeakng": "espeak-ng", "melotts": "melo"}
         order = [aliases.get(preferred, preferred)]
     elif platform.system() == "Darwin" and have["say"]:
-        order = ["say", "espeak-ng", "espeak"]
+        order = ["melo", "say", "espeak-ng", "espeak"]
     else:
-        order = ["espeak-ng", "espeak", "say"]
+        order = ["melo", "espeak-ng", "espeak", "say"]
     return [n for n in order if have.get(n)]
 
 
 class Tts:
-    """Wraps whichever speech engine exists on this machine."""
+    """Wraps whichever speech engine exists on this machine.
 
-    def __init__(self, backend: str, espeak_voice: str | None) -> None:
+    Subclasses implement `synthesize` (produce one raw audio file) and may
+    override `intermediate_path` / `prepare`. The shared `render` then runs the
+    same ffmpeg normalisation for every backend, so the assembled track sounds
+    consistent no matter which engine produced the clips.
+    """
+
+    def __init__(self, backend: str, espeak_voice: str | None = None) -> None:
         self.backend = backend
         self.espeak_voice = espeak_voice
 
@@ -172,25 +291,25 @@ class Tts:
             return f"{self.backend} ({self.espeak_voice})"
         return self.backend
 
+    def prepare(self, items: list[tuple[str, str]], work: Path, voice: str, rate: int) -> None:
+        """Optional batch pre-pass; `items` is [(line_id, text), ...].
+
+        Backends that synthesise per line (say, espeak) leave this alone.
+        MeloTTS overrides it so its model is loaded once for the whole script
+        instead of once per narration line.
+        """
+
+    def intermediate_path(self, out_wav: Path) -> Path:
+        """Where `synthesize` writes, before the ffmpeg normalisation pass."""
+        return out_wav
+
+    def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
+        raise NotImplementedError
+
     def render(self, text: str, out_wav: Path, voice: str, rate: int) -> None:
         """Synthesise `text` into `out_wav` (mono pcm_s16le)."""
-        intermediate = out_wav.with_suffix(".aiff" if self.backend == "say" else ".wav")
-        if self.backend == "say":
-            v = "Tingting" if voice in ("", "auto", "default") else voice
-            res = run(["say", "-v", v, "-r", str(rate), "-o", str(intermediate), text])
-            if res.returncode != 0:
-                raise RuntimeError(f"say failed: {res.stderr.strip()}")
-        elif self.backend in ("espeak-ng", "espeak"):
-            # espeak takes words per minute; clamp into its useful range.
-            wpm = max(120, min(280, int(rate)))
-            res = run([
-                self.backend, "-v", self.espeak_voice or "cmn", "-s", str(wpm),
-                "-p", "48", "-a", "170", "-w", str(intermediate), text,
-            ])
-            if res.returncode != 0:
-                raise RuntimeError(f"{self.backend} failed: {res.stderr.strip()}")
-        else:
-            raise RuntimeError(f"unsupported TTS backend: {self.backend}")
+        intermediate = self.intermediate_path(out_wav)
+        self.synthesize(text, intermediate, voice, rate)
 
         res = run([
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(intermediate),
@@ -203,17 +322,127 @@ class Tts:
             intermediate.unlink(missing_ok=True)
 
 
-def detect_tts(preferred: str) -> Tts | None:
-    for backend in _tts_candidates(preferred):
+class SayTts(Tts):
+    """macOS `say`."""
+
+    def __init__(self) -> None:
+        super().__init__("say")
+
+    def intermediate_path(self, out_wav: Path) -> Path:
+        return out_wav.with_suffix(".aiff")
+
+    def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
+        v = "Tingting" if voice in ("", "auto", "default") else voice
+        res = run(["say", "-v", v, "-r", str(rate), "-o", str(intermediate), text])
+        if res.returncode != 0:
+            raise RuntimeError(f"say failed: {res.stderr.strip()}")
+
+
+class EspeakTts(Tts):
+    """espeak-ng / espeak."""
+
+    def __init__(self, backend: str, espeak_voice: str) -> None:
+        super().__init__(backend, espeak_voice)
+
+    def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
+        # espeak takes words per minute; clamp into its useful range.
+        wpm = max(120, min(280, int(rate)))
+        res = run([
+            self.backend, "-v", self.espeak_voice or "cmn", "-s", str(wpm),
+            "-p", "48", "-a", "170", "-w", str(intermediate), text,
+        ])
+        if res.returncode != 0:
+            raise RuntimeError(f"{self.backend} failed: {res.stderr.strip()}")
+
+
+class MeloTts(Tts):
+    """Local MeloTTS, driven as a subprocess by an interpreter that has it."""
+
+    def __init__(self, python: str, language: str, speed: float) -> None:
+        super().__init__("melo")
+        self.python = python
+        self.language = language
+        self.speed = speed
+        self.raw_dir: Path | None = None
+
+    @property
+    def name(self) -> str:
+        return f"melo ({self.language}, speed {self.speed:g})"
+
+    def intermediate_path(self, out_wav: Path) -> Path:
+        # Never point this at out_wav: `render` hands it to ffmpeg as the input,
+        # so it must be a different file.
+        base = self.raw_dir if self.raw_dir is not None else out_wav.parent
+        return base / out_wav.name
+
+    def prepare(self, items: list[tuple[str, str]], work: Path, voice: str, rate: int) -> None:
+        self.raw_dir = work / "_melo_raw"
+        if self.raw_dir.exists():
+            shutil.rmtree(self.raw_dir)
+        self.raw_dir.mkdir(parents=True, exist_ok=True)
+        spec = {
+            "language": self.language,
+            "speed": self.speed,
+            "speaker": 0,
+            "jobs": [
+                {"id": line_id, "text": text, "out": str(self.raw_dir / f"{line_id}.wav")}
+                for line_id, text in items
+            ],
+        }
+        job_file = work / "melo_jobs.json"
+        job_file.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+        print(
+            f"  melo: 预合成 {len(spec['jobs'])} 条"
+            f"（{self.language}, speed {self.speed:g}）-> {self.raw_dir}"
+        )
+        res = run([self.python, str(MELO_WORKER), "--jobs", str(job_file)])
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or "").strip()[-800:]
+            raise RuntimeError(f"MeloTTS failed (exit {res.returncode}): {detail}")
+        missing = [line_id for line_id, _ in items if not (self.raw_dir / f"{line_id}.wav").exists()]
+        if missing:
+            raise RuntimeError(f"MeloTTS 没有产出这些行：{', '.join(missing[:6])}")
+
+    def synthesize(self, text: str, intermediate: Path, voice: str, rate: int) -> None:
+        # prepare() already synthesised every clip in one model-load pass.
+        if not intermediate.exists():
+            raise RuntimeError(f"MeloTTS 未产出 {intermediate}")
+
+
+def _fallback_tts() -> Tts | None:
+    """MeloTTS 装上了却跑挂时的退路：espeak-ng → espeak → macOS say。"""
+    for backend in ("espeak-ng", "espeak", "say"):
+        if shutil.which(backend) is None:
+            continue
         if backend in ("espeak-ng", "espeak"):
-            for voice in ESPEAK_VOICE_CANDIDATES:
-                if run([backend, "-v", voice, "-w", os.devnull, "test"]).returncode == 0:
-                    return Tts(backend, voice)
+            for candidate in ESPEAK_VOICE_CANDIDATES:
+                if run([backend, "-v", candidate, "-w", os.devnull, "test"]).returncode == 0:
+                    return EspeakTts(backend, candidate)
             # an English-accented reading beats no narration at all
             if run([backend, "-v", "en", "-w", os.devnull, "test"]).returncode == 0:
-                return Tts(backend, "en")
+                return EspeakTts(backend, "en")
             continue
-        return Tts(backend, None)
+        return SayTts()
+    return None
+
+
+def detect_tts(preferred: str, voice: str = "auto") -> Tts | None:
+    for backend in _tts_candidates(preferred):
+        if backend == "melo":
+            python = find_melo_python()
+            if python:
+                return MeloTts(python, _melo_language(voice), _melo_speed())
+            continue
+        if backend == "say":
+            return SayTts()
+        if backend in ("espeak-ng", "espeak"):
+            for candidate in ESPEAK_VOICE_CANDIDATES:
+                if run([backend, "-v", candidate, "-w", os.devnull, "test"]).returncode == 0:
+                    return EspeakTts(backend, candidate)
+            # an English-accented reading beats no narration at all
+            if run([backend, "-v", "en", "-w", os.devnull, "test"]).returncode == 0:
+                return EspeakTts(backend, "en")
+            continue
     return None
 
 
@@ -295,10 +524,24 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
     line_pause_frames = round(LINE_PAUSE_MS / 1000.0 * fps)
     scene_pause_frames = round(SCENE_PAUSE_MS / 1000.0 * fps)
 
-    tts = None if force_no_audio else detect_tts(preferred_tts)
+    tts = None if force_no_audio else detect_tts(preferred_tts, script.voice)
     if tts is not None:
         print(f"{script.id}: TTS = {tts.name}")
-    else:
+        try:
+            # 批量型后端（MeloTTS）在这里一次加载模型、把所有台词合成好；
+            # say / espeak 的这个钩子是空的，仍然逐行合成。
+            tts.prepare(
+                [(line_id, text) for _, _, line_id, text in script.flat],
+                work,
+                script.voice,
+                script.rate,
+            )
+        except RuntimeError as error:
+            print(f"warning: {tts.name} 不可用：{error}", file=sys.stderr)
+            tts = _fallback_tts()
+            if tts is not None:
+                print(f"{script.id}: TTS = {tts.name}（回退）", file=sys.stderr)
+    if tts is None:
         print(
             f"{script.id}: no TTS available -> generating silent clips; "
             "the video will run as subtitles-only",
@@ -660,7 +903,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-audio", action="store_true",
                     help="skip TTS entirely and generate silent clips")
-    ap.add_argument("--tts", default="auto", help="auto | say | espeak-ng | espeak")
+    ap.add_argument("--tts", default="auto",
+                    help="auto | melo | say | espeak-ng | espeak")
     args = ap.parse_args()
 
     script = Script(Path(args.script))

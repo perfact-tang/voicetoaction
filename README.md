@@ -116,7 +116,7 @@ cp .env.example .env
 | `SKILLS_DIR` | 可选 | skill 安装目录（默认 `monitor-data/skills`，**只给本后端用**，不污染 `~/.agents/skills`） |
 | `SKILLS_RUNNER_BIN` | 可选 | aiskillsrunner 路径（默认用仓库里的 `01_aiskillsrunner/aiskillsrunner.js`，由同一个 node 执行） |
 | `DSH_BIN` | 可选 | dsh 可执行文件（默认由 aiskillsrunner 从 PATH 查找；子进程 PATH 会自动补上当前 node 目录） |
-| `SKILLS_RUNNER_TIMEOUT_MS` | 可选 | 单次 skill 执行超时（默认 1800000 = 30 分钟） |
+| `SKILLS_RUNNER_TIMEOUT_MS` | 可选 | 单次 skill 执行超时（默认 5400000 = 1.5 小时；视频渲染类 skill 至少 1.5 小时） |
 | `STT_OUTPUT_DIR` | 可选 | STT 文本在本机的保存目录（默认 `monitor-data/stt`） |
 | `DSH_PERMISSION_MODE` | 可选 | 传给 `dsh` 的权限模式（默认 `danger-full-access`） |
 | `FCM_ENABLED` | 可选 | 任务结束后是否推送 FCM 通知（默认 `true`，设 `false` 关闭） |
@@ -133,8 +133,17 @@ App 的呼叫对象选择 CMS 里 `type = deepseek_harness` 的服务时，**不
    `AISKILLSRUNNER_SKILLS_DIR` 告诉 aiskillsrunner，因此只影响本后端。
 3. **版本维护**：本地登记表 `SKILLS_DIR/.installed.json` 记录每个 skill 的版本号；
    与 CMS 的 `allalservice/{serviceId}.skillActiveVersion` 比对。
-4. **更新机制**：版本不一致（或下载地址变化 / 本地文件缺失）时，先删除本地旧版本，
-   再用 `aiskillsrunner --installurl <skillZipUrl> --force-install` 重新下载安装。
+4. **更新机制（按版本号，只升不降）**：
+   - CMS 版本 **> 本地版本** → 先删掉本地旧版本，再用
+     `aiskillsrunner --installurl <skillZipUrl> --force-install` 重新下载安装；
+   - 本地版本 **≥ CMS 版本** → 跳过安装（日志：`本地 V2 与 CMS 一致，跳过安装`；
+     CMS 版本被调低时打 `本地 V3 比 CMS V2 新，保持本地不动`）；
+   - 另外两种情况也会重装：**本地文件缺失 / 登记表里没有版本记录**，
+     以及**版本相同但 zip 下载地址变了**（同一个版本号换了包）。
+
+   > 版本号是在 skill **安装 + 执行都成功之后**才登记的（`monitor.js` 的
+   > `recordLocalSkill`）。所以一个从没成功跑完过的 skill 会一直「没有版本记录」，
+   > 于是每次都重新下载 —— 这是正常的自愈行为，成功跑完一次后就会转为纯版本比对。
 
 实际执行的命令与手写完全一致，只是参数由后端从 CMS 和 `.env` 取：
 
@@ -161,8 +170,21 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 
 **执行过程中的可见性**：aiskillsrunner / dsh 的 stderr / stdout 会**实时**写进监控日志
 （形如 `[skill:stderr] …`），每 60 秒还有一条 `skill 仍在执行…已运行 Ns` 心跳；
-一旦超过 `SKILLS_RUNNER_TIMEOUT_MS`（默认 30 分钟），会**杀掉整个 skill 进程组**
+一旦超过 `SKILLS_RUNNER_TIMEOUT_MS`（默认 1.5 小时），会**杀掉整个 skill 进程组**
 并把任务标记为失败，绝不会永远卡在 `running_skill`。
+
+> ⚠️ **视频渲染类 skill 要留足时间。** `text-to-animation-movie` 是单回合执行：
+> 装依赖 + 分镜静帧检查约 8 分钟，Remotion 渲染 1080×1920 / 30fps 的 2–3 分钟成片
+> 还要十几分钟以上，30 分钟会在渲染中途被杀（成片与上传都拿不到）。
+> 这类 skill 建议把 `SKILLS_RUNNER_TIMEOUT_MS` 设到 `5400000`（1.5 小时）或更大。
+
+> 🎙️ **配音依赖 MeloTTS（可选但强烈建议）。** `text-to-animation-movie` 会自己探测本机
+> 有没有 MeloTTS：有就用它（中文自然），没有才回退 `espeak-ng`（机械音），都没有则纯字幕。
+> 安装（无需 sudo，装到 `$HOME/melotts-venv`，约 1.5GB 含模型）：
+>
+> ```bash
+> bash scripts/install-melotts.sh
+> ```
 
 > ⚠️ **`.env` 里不能出现 `DSH_*` / `XDG_*` / `DYLD_*` / `BASH_FUNC_*` 变量。**
 > `dsh` 会把「工作目录/.env」当作 project 层读取，这些前缀只允许来自**真正 export 的环境变量**，

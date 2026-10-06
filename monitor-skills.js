@@ -7,7 +7,7 @@
  *   2. 用本机已安装的 `aiskillsrunner` 执行 skill（`dsh --profile headless`）；
  *   3. 安装到**后端专属目录**（默认 `monitor-data/skills`），不污染全局 `~/.agents/skills`；
  *   4. 在 `<SKILLS_DIR>/.installed.json` 维护本地版本号，与 CMS 的
- *      `allalservice/{serviceId}.skillActiveVersion` 比对；不一致就删掉重装。
+ *      `allalservice/{serviceId}.skillActiveVersion` 比对；**CMS 版本更新才**删掉重装。
  *
  * aiskillsrunner 由本模块调用，参数与手写命令一致：
  *   DSH_PERMISSION_MODE=... aiskillsrunner --skill <名称> --reffilepath <txt>
@@ -72,7 +72,7 @@ export function localSkillInstalled(skillsDir, skillName) {
   return existsSync(join(skillsDir, skillName, "SKILL.md")) || existsSync(join(skillsDir, `${skillName}.md`));
 }
 
-/** 删除本地安装的 skill（目录型 + 扁平型），用于版本不一致时重装。 */
+/** 删除本地安装的 skill（目录型 + 扁平型），用于需要重装时（如 CMS 出了新版本）。 */
 export function removeLocalSkill(skillsDir, skillName) {
   const removed = [];
   const dir = join(skillsDir, skillName);
@@ -90,7 +90,11 @@ export function removeLocalSkill(skillsDir, skillName) {
 
 /**
  * 判断是否需要重新下载安装。
- * 只有在「本地文件存在」且「本地登记版本 == CMS 版本」时才跳过安装。
+ *
+ * 只按版本号决定：**CMS 版本比本地新**才重装；本地版本不低于 CMS 就跳过
+ * （CMS 端版本号被调低时保持本地不动，不做降级）。另外两种「无从比较」的情况仍重装：
+ *   - 本地文件缺失，或登记表里没有该 skill 的版本记录；
+ *   - 版本相同、但 zip 下载地址变了（同一个版本号换了包）。
  */
 export function resolveSkillInstall({ skillsDir, skillName, remoteVersion, installUrl }) {
   const installed = localSkillInstalled(skillsDir, skillName);
@@ -101,13 +105,16 @@ export function resolveSkillInstall({ skillsDir, skillName, remoteVersion, insta
   const localVersion = Number(record?.version);
   const target = Number(remoteVersion) || 0;
   if (!Number.isFinite(localVersion)) {
-    return { action: "reinstall", reason: `本地没有 skill "${skillName}" 的版本记录（远端 V${target}）`, force: true };
+    return { action: "reinstall", reason: `本地没有 skill "${skillName}" 的版本记录（CMS V${target}）`, force: true };
   }
-  if (localVersion !== target) {
-    return { action: "reinstall", reason: `本地 V${localVersion} ≠ CMS V${target}`, force: true };
+  if (localVersion < target) {
+    return { action: "reinstall", reason: `CMS 有新版本：本地 V${localVersion} → V${target}`, force: true };
+  }
+  if (localVersion > target) {
+    return { action: "skip", reason: `本地 V${localVersion} 比 CMS V${target} 新，保持本地不动`, force: false };
   }
   if (record?.installUrl && installUrl && record.installUrl !== installUrl) {
-    return { action: "reinstall", reason: `skill "${skillName}" 的下载地址已变化`, force: true };
+    return { action: "reinstall", reason: `skill "${skillName}" 的下载地址已变化（版本同为 V${target}）`, force: true };
   }
   return { action: "skip", reason: `本地 V${localVersion} 与 CMS 一致`, force: false };
 }
@@ -133,7 +140,7 @@ export function runAiskillsrunner({
   dshBin,
   extraEnv = {},
   cwd,
-  timeoutMs = 30 * 60 * 1000,
+  timeoutMs = 90 * 60 * 1000,
   /** (stream, line) => void：把子进程输出实时转出去（仪表盘日志 / 心跳） */
   onLine
 } = {}) {

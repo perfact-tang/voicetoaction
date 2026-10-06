@@ -9,7 +9,8 @@
 - 先把文本拆成论证链、再写台词、再画分镜 —— 不把文章按小标题逐段翻译成画面。
 - 台词用 TTS 配音，并输出**与配音逐行对齐**的 `.lrc` 字幕文件。
 - 用 Remotion 在本机渲染成 MP4（无需云端渲染服务）。
-- 目标执行环境是 **Ubuntu**；配音在 Linux 上走 `espeak-ng`，没有 TTS 时自动退化为纯字幕版。
+- 目标执行环境是 **Ubuntu**；配音**优先用本机 MeloTTS**（神经网络 TTS，中文自然），
+  没装才回退 `espeak-ng`（机械音），连 espeak 都没有时自动退化为纯字幕版。
 - 工作目录按 **DocID** 组织：`~/Documents/tmpaiskill/<DocID>/`。
 - 最后**只调用 1 次**上传脚本，完成 Storage 上传 + Firestore 写入 + FCM。
 
@@ -26,6 +27,9 @@ text-to-animation-movie/
 │   ├── story-sample.md            # 示例输入文本
 │   └── script-sample.json         # 示例 script.json
 ├── assets/engine/                 # 每次复制到工作目录的 Remotion 工程模板
+│   └── scripts/
+│       ├── build_audio.py         # 配音 + 时间轴（自动判定 MeloTTS / espeak）
+│       └── melo_tts.py            # MeloTTS 批处理 worker（模型只加载一次）
 └── scripts/
     ├── upload-movie.js            # Storage 上传 + Firestore note + FCM
     ├── upload-movie.sh            # 上面的安全封装（校验参数与依赖）
@@ -60,12 +64,37 @@ python3 -V
 ffmpeg -version | head -1
 ffprobe -version | head -1
 sudo apt-get install -y fonts-noto-cjk   # 中文字体（缺了会渲染成方框）
-sudo apt-get install -y espeak-ng        # 可选：旁白；没有则纯字幕
+bash scripts/install-melotts.sh          # 推荐：中文配音（无需 sudo，约 1.5GB 含模型）
+sudo apt-get install -y espeak-ng        # 可选：MeloTTS 缺失时的回退；都没有则纯字幕
 ```
 
 Firebase 服务账号密钥默认路径
 `~/Downloads/vibecodingjapan-firebase-adminsdk-fbsvc-f376a3b494.json`，
 可用 `AISKILLS_MOVIE_KEY` 覆盖。作者 uid 默认 `KYTF9y43qgc39vKn0sI3qWpsjRE2`。
+
+## 配音后端（MeloTTS 优先，自动判定）
+
+`assets/engine/scripts/build_audio.py` 自己判断本机有没有 MeloTTS，**不需要人工指定**：
+
+| 顺序 | 探测位置 |
+|---|---|
+| 1 | `$MELOTTS_PYTHON` / `$AISKILLS_MELOTTS_PYTHON` 指定的解释器 |
+| 2 | 运行 `build_audio.py` 的那个 `python3` |
+| 3 | `PATH` 上的 `python3` / `python` |
+| 4 | `~/melotts-venv`、`~/.local/share/melotts/venv`、`~/.venvs/melotts`、`~/melotts/.venv` |
+
+判定标准是「这个解释器能不能 `import melo`」，不是「目录在不在」，所以路径写错没有副作用。
+找不到就走 `espeak-ng`（macOS 上是 `say`）；MeloTTS 存在但合成报错时会打印 warning 并回退，
+视频照样产出。
+
+```bash
+bash scripts/install-melotts.sh                    # 无需 sudo，装到 $HOME/melotts-venv
+python3 scripts/build_audio.py --tts melo          # 强制 MeloTTS
+MELOTTS_SPEED=1.1 python3 scripts/build_audio.py   # 语速（默认 1.0）
+```
+
+实测（12 核 CPU、ZH 模型）：模型加载 17–33s，之后每条台词 1–4s，约 3.7–4.6 字/秒 ——
+与 `--dry-run` 用的 3.55 字/秒估算接近，所以总时长不会因为换 TTS 而失控。
 
 ## 运行
 
@@ -151,6 +180,7 @@ AISKILLS_FCM_TOPIC=all bash scripts/upload-movie.sh 1759700000000 ./movie.mp4 \
 - **失败即报告，不要重复上传**：`upload-movie.sh` 每次只执行一次上传。
 - **FCM 失败不影响上传**：Storage 与 Firestore 成功后，通知失败只打印告警。
 - 渲染需要约 1GB 磁盘（`node_modules` + Headless Chrome），首次运行会下载 Chrome。
-- 没有 `espeak-ng` 时视频会退化成**纯字幕版**，LRC 依然准确；报告里必须写明。
+- 配音后端由 `build_audio.py` 自动判定：找到能 `import melo` 的解释器就用 **MeloTTS**，
+  否则回退 `espeak-ng`，都没有时退化成**纯字幕版**；报告里必须写明用的是哪个。
 - 分镜必须**实际渲染静帧检查**：文字超框、手遮文字是最常见的两类问题。
 - 中文写作、分镜画法、上传细节的完整规范在 `references/` 下，`SKILL.md` 按步骤要求读取。

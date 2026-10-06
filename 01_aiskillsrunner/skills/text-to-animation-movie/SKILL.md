@@ -52,9 +52,12 @@ ffprobe -version | head -1   # 时间轴测量依赖它
 fc-list :lang=zh 2>/dev/null | head -3 || echo "缺 fontconfig"
 # 缺字体时：sudo apt-get install -y fonts-noto-cjk
 
-# 3. 语音合成（缺了也能跑，视频会退化成纯字幕）
+# 3. 语音合成：优先 MeloTTS（本机神经网络 TTS，中文自然），没有才回退 espeak
+"${MELOTTS_PYTHON:-$HOME/melotts-venv/bin/python}" -c "import melo; print('MeloTTS OK')" 2>/dev/null \
+  || echo "无 MeloTTS -> 会回退 espeak-ng（中文是机械音）"
 command -v espeak-ng || command -v espeak || command -v say || echo "无 TTS -> 纯字幕模式"
-# 需要旁白且没有 TTS 时：sudo apt-get install -y espeak-ng
+# 装 MeloTTS（无需 sudo，约 1.5GB 含模型）：bash scripts/install-melotts.sh
+# 需要旁白但连 espeak 也没有时：sudo apt-get install -y espeak-ng
 
 # 4. 工作根目录
 mkdir -p "$HOME/Documents/tmpaiskill"
@@ -78,6 +81,44 @@ DSH_PERMISSION_MODE=danger-full-access \
 请停止并在最终报告里写明这条命令，**不要改用其它路径绕过**。
 
 如果 `node`、`ffmpeg`、`ffprobe` 任一缺失 → 立即停止并报告，不要继续。
+
+### 配音后端（MeloTTS 优先，自动判定）
+
+`build_audio.py` **自己会判定本机有没有 MeloTTS**，不需要你在 Step4 里做判断：
+
+```bash
+# 想自己确认一下（可选）
+python3 - <<'EOF'
+import importlib.util
+spec = importlib.util.spec_from_file_location("ba", "scripts/build_audio.py")
+ba = importlib.util.module_from_spec(spec); spec.loader.exec_module(ba)
+print("MeloTTS 解释器:", ba.find_melo_python() or "（无）")
+print("实际会用的后端:", (ba.detect_tts("auto", "auto") or type("x", (), {"name": "none"})()).name)
+EOF
+```
+
+判定顺序（`find_melo_python()`）：
+
+1. 环境变量 `MELOTTS_PYTHON`（或 `AISKILLS_MELOTTS_PYTHON`）指定的解释器；
+2. 跑 `build_audio.py` 的那个 `python3`；
+3. `PATH` 上的 `python3` / `python`；
+4. 约定安装位置：`~/melotts-venv`、`~/.local/share/melotts/venv`、`~/.venvs/melotts`、`~/melotts/.venv`。
+
+**判定标准是「这个解释器能不能 `import melo`」**，不是「目录存不存在」，所以路径写错
+不会有副作用，最多退回到下一个候选。
+
+| 情况 | 行为 |
+|---|---|
+| 找到 MeloTTS | `TTS = melo (ZH, speed 1)` —— 一次性加载模型，把全部台词合成完再拼轨 |
+| 没找到 | 回退 `espeak-ng (cmn)`；macOS 上回退 `say` |
+| MeloTTS 装上了但合成报错 | 打印 warning，退回 `espeak-ng`，视频照常产出（报告里要写明） |
+| 什么 TTS 都没有 | 纯字幕版，**必须在报告里写明** |
+
+- 只装一次：`bash scripts/install-melotts.sh`（无 sudo，装到 `$HOME/melotts-venv`）。
+- 语速用环境变量 `MELOTTS_SPEED=1.1` 调（默认 1.0）。时间轴是从**实测音轨**反推的，
+  改语速只会让视频变长/变短，不会让字幕错位；但总时长超过 240s、单场超过 18s 会触发
+  节奏护栏（脚本以退出码 1 结束），所以调语速后要看 Step4 的输出。
+- 想强制某个后端：`--tts melo` / `--tts espeak-ng` / `--tts say`。
 
 ---
 

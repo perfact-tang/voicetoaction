@@ -147,10 +147,12 @@ function isMarkdownJob(job) {
   return isMarkdownKind(job && job.kind);
 }
 
-/** Skills 执行超时（毫秒），非法值回退 30 分钟；下限 10 秒。 */
+/** Skills 执行超时（毫秒），非法值回退 1.5 小时；下限 10 秒。
+ *  视频渲染类 skill（text-to-animation-movie）要装依赖 + 渲染上千帧，
+ *  30 分钟会在渲染中途被杀，所以默认放到 90 分钟。 */
 function normalizeSkillsTimeout(value) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 10_000 ? Math.trunc(parsed) : 30 * 60 * 1000;
+  return Number.isFinite(parsed) && parsed >= 10_000 ? Math.trunc(parsed) : 90 * 60 * 1000;
 }
 
 /** 「a,b」/ 数组 → 去空去重的字符串数组（产物校验的 skill 名单用）。 */
@@ -194,7 +196,7 @@ const state = {
     // ---- Skills（DeepSeek Harness）----
     skillsDir: defaultSkillsDir,
     skillsRunnerBin: "aiskillsrunner",
-    skillsRunnerTimeoutMs: 30 * 60 * 1000,
+    skillsRunnerTimeoutMs: 90 * 60 * 1000,
     sttOutputDir: sttDir,
     dshPermissionMode: "danger-full-access",
     /** skill 退出码为 0 时，是否再校验产物（见 verifySkillUpload）。 */
@@ -1001,7 +1003,8 @@ async function processSkillJob(job) {
       entry.errorMessage = `本地版本需要更新：${install.reason}`;
     });
     log(`准备${install.action === "install" ? "安装" : "重新安装"} skill「${service.skillName}」：${install.reason}`);
-    // 版本不一致（或首次安装）都先删掉本地旧文件，避免 cpSync 残留旧内容
+    // 需要重装时（CMS 版本更新 / 首次安装 / 本地没有版本记录 / 换了 zip 地址）
+    // 都先删掉本地旧文件，避免 cpSync 残留旧内容
     const removed = removeLocalSkill(state.config.skillsDir, service.skillName);
     if (removed.length) log(`已删除本地旧版本：${removed.join(", ")}`);
   } else {

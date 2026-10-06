@@ -1703,7 +1703,8 @@ private fun AICallingContactsScreen(
       }
       else -> {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-          items(items, key = { it.aicallingId }) { item ->
+          // Drive folders can be empty or shared; the CMS document ID uniquely identifies a service.
+          items(items, key = { it.serviceId }) { item ->
             GlassCard(
               Modifier.fillMaxWidth().clickable { onCall(item) },
               cornerRadius = 20,
@@ -1773,7 +1774,7 @@ private fun AICallingPickerDialog(
           }
           else -> {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(360.dp)) {
-              items(items, key = { it.aicallingId }) { item ->
+              items(items, key = { it.serviceId }) { item ->
                 GlassCard(
                   Modifier.fillMaxWidth().clickable { onSelect(item) },
                   cornerRadius = 18,

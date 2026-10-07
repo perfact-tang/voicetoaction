@@ -203,6 +203,26 @@ class AudioProcessorTest {
   }
 
   @Test
+  fun mergeAndSpeed_preservesSamplesAcrossFilesAndBufferBoundaries() {
+    val dir = createTempDirectory("luyin-buffered-speed-test").toFile()
+    val firstSamples = ShortArray(40_001) { (it % 32000 - 16000).toShort() }
+    val secondSamples = ShortArray(40_000) { (16000 - it % 32000).toShort() }
+    val first = File(dir, "first.wav")
+    val second = File(dir, "second.wav")
+    WavAudio.writeWav(first, firstSamples)
+    WavAudio.writeWav(second, secondSamples)
+    val output = File(dir, "speed.wav")
+
+    WavAudio.mergeAndSpeed(listOf(first, second), output, 1.5f)
+
+    val allSamples = firstSamples + secondSamples
+    val expected = ShortArray(53_334) { allSamples[kotlin.math.floor(it * 1.5f).toInt()] }
+    assertTrue(WavAudio.isCanonicalPcm16(output))
+    assertArrayEquals(expected, WavAudio.readPcmSamples(output))
+    dir.deleteRecursively()
+  }
+
+  @Test
   fun durationMs_forCompressedOutputUsesSelectedSpeed() {
     val first = RecordingItem("1", "a.wav", "/tmp/a.wav", 0L, 3_000L, 0L)
     val second = RecordingItem("2", "b.wav", "/tmp/b.wav", 0L, 1_500L, 0L)

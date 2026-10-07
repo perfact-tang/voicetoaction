@@ -121,6 +121,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
@@ -311,6 +312,11 @@ fun LuYinApp(
     Scaffold(
       modifier = Modifier.safeDrawingPadding(),
       containerColor = Color.Transparent,
+      topBar = {
+        if (uploadTask.active) {
+          UploadProcessingBanner(uploadTask, onRestore = { UploadRuntime.restore() })
+        }
+      },
       bottomBar = { NeonBottomBar(selected = tab, onSelect = { tab = it }) },
     ) { padding ->
       Column(Modifier.fillMaxSize().padding(padding)) {
@@ -368,71 +374,102 @@ fun LuYinApp(
   message?.let {
     AlertDialog(onDismissRequest = { message = null }, confirmButton = { TextButton({ message = null }) { LocalizedText("知道了") } }, text = { LocalizedText(it) })
   }
-  if (uploadTask.active) {
-    UploadProgressDialog(uploadTask)
+  if (uploadTask.active && !uploadTask.minimized) {
+    UploadProgressDialog(uploadTask, onMinimize = { UploadRuntime.minimize() })
   }
 }
 
 @Composable
-private fun UploadProgressDialog(state: UploadTaskUiState) {
+private fun UploadProcessingBanner(state: UploadTaskUiState, onRestore: () -> Unit) {
+  val text = when {
+    state.terminal || state.error != null -> "上传失败，点击查看详情"
+    !state.cancellable -> "正在取消处理，请稍候"
+    state.phase.startsWith("正在上传") -> "现在正在上传中，请不要关闭程序"
+    else -> "现在正在转换中，请不要关闭程序"
+  }
+  Column(
+    Modifier.fillMaxWidth().background(Neon.Purple.copy(alpha = 0.22f)).padding(horizontal = 16.dp, vertical = 8.dp),
+  ) {
+    LocalizedText(text, color = Neon.Text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+      LocalizedText("${state.phase} · ${state.progress}%", modifier = Modifier.weight(1f), color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+      TextButton(onClick = onRestore) { LocalizedText(if (state.terminal) "查看详情" else "查看进度") }
+    }
+  }
+}
+
+@Composable
+private fun UploadProgressDialog(state: UploadTaskUiState, onMinimize: () -> Unit) {
   val context = LocalContext.current
   val failed = state.error != null || state.terminal
-  Box(
-    Modifier
-      .fillMaxSize()
-      .background(Color.Black.copy(alpha = 0.58f))
-      .padding(28.dp),
-    contentAlignment = Alignment.Center,
+  Dialog(
+    onDismissRequest = { if (failed) UploadRuntime.finish() else onMinimize() },
+    properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
   ) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26) {
-      Column(
-        Modifier.padding(26.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-      ) {
-        Box(
-          Modifier
-            .size(112.dp)
-            .shadow(22.dp, CircleShape)
-            .clip(CircleShape)
-            .background(
-              Brush.radialGradient(
-                if (failed) {
-                  listOf(Color(0xFFFF8A8A), Color(0xFFB3123F), Color(0xFF32101B))
-                } else {
-                  listOf(Color(0xFF8EA0FF), Neon.Purple, Color(0xFF2C1B75))
-                },
-              ),
-            ),
-          contentAlignment = Alignment.Center,
+    Box(
+      Modifier
+        .fillMaxSize()
+        .background(Color.Black.copy(alpha = 0.58f))
+        .padding(28.dp),
+      contentAlignment = Alignment.Center,
+    ) {
+      GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26) {
+        Column(
+          Modifier.padding(26.dp).verticalScroll(rememberScrollState()),
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-          Icon(Icons.Rounded.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(58.dp))
+          Box(
+            Modifier
+              .size(112.dp)
+              .shadow(22.dp, CircleShape)
+              .clip(CircleShape)
+              .background(
+                Brush.radialGradient(
+                  if (failed) {
+                    listOf(Color(0xFFFF8A8A), Color(0xFFB3123F), Color(0xFF32101B))
+                  } else {
+                    listOf(Color(0xFF8EA0FF), Neon.Purple, Color(0xFF2C1B75))
+                  },
+                ),
+              ),
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(Icons.Rounded.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(58.dp))
+          }
+          LocalizedText(if (failed) "上传失败" else "正在处理上传", color = Neon.Text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+          LocalizedText(state.phase, color = Neon.Muted)
+          if (state.detail.isNotBlank()) LocalizedText(state.detail, color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+          LinearProgressIndicator(
+            progress = { state.progress / 100f },
+            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(6.dp)),
+            color = Neon.Purple,
+            trackColor = Color.White.copy(alpha = 0.14f),
+          )
+          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            LocalizedText("${state.progress}%", color = Neon.Text, fontWeight = FontWeight.Bold)
+            LocalizedText("已执行 ${formatElapsed(state.elapsedMs)}", color = Neon.Muted)
+          }
+          if (!failed) {
+            GlassButton(
+              text = "最小化，后台运行",
+              modifier = Modifier.fillMaxWidth(),
+              onClick = onMinimize,
+            )
+          }
+          GlassButton(
+            text = if (failed) "关闭" else "取消处理",
+            modifier = Modifier.fillMaxWidth(),
+            enabled = failed || state.cancellable,
+            onClick = {
+              if (failed) {
+                UploadRuntime.finish()
+              } else {
+                context.startService(Intent(context, UploadProcessingService::class.java).setAction(UploadProcessingService.ACTION_CANCEL))
+              }
+            },
+          )
         }
-        LocalizedText(if (failed) "上传失败" else "正在处理上传", color = Neon.Text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        LocalizedText(state.phase, color = Neon.Muted)
-        if (state.detail.isNotBlank()) LocalizedText(state.detail, color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        LinearProgressIndicator(
-          progress = { state.progress / 100f },
-          modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(6.dp)),
-          color = Neon.Purple,
-          trackColor = Color.White.copy(alpha = 0.14f),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-          LocalizedText("${state.progress}%", color = Neon.Text, fontWeight = FontWeight.Bold)
-          LocalizedText("已执行 ${formatElapsed(state.elapsedMs)}", color = Neon.Muted)
-        }
-        GlassButton(
-          text = if (failed) "关闭" else "取消处理",
-          modifier = Modifier.fillMaxWidth(),
-          enabled = failed || state.cancellable,
-          onClick = {
-            if (failed) {
-              UploadRuntime.finish()
-            } else {
-              context.startService(Intent(context, UploadProcessingService::class.java).setAction(UploadProcessingService.ACTION_CANCEL))
-            }
-          },
-        )
       }
     }
   }
@@ -1209,6 +1246,11 @@ private fun RecorderScreen(
   }
 
   fun startUploadProcessing(intent: Intent) {
+    val task = UploadRuntime.state.value
+    if (task.active && !task.terminal) {
+      onMessage("已有上传任务正在进行")
+      return
+    }
     if (
       Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -1543,9 +1585,14 @@ private fun RecorderScreen(
       item = item,
       onDismiss = { detailRecordingId = null },
       onRename = { nextName ->
-        val renamed = renameLocalRecordingFile(item, nextName)
-        appStore.updateRecording(item.id) { renamed }
-        onMessage("文件名已更新")
+        val current = appStore.snapshot.value.recordings.firstOrNull { it.id == item.id } ?: item
+        if (current.uploadState == UploadState.PROCESSING || current.uploadState == UploadState.UPLOADING) {
+          onMessage("此录音正在转换或上传，请完成后再修改或删除")
+        } else {
+          val renamed = renameLocalRecordingFile(current, nextName)
+          appStore.updateRecording(item.id) { renamed }
+          onMessage("文件名已更新")
+        }
       },
       onDelete = { pendingDeleteIds = setOf(item.id) },
       onDownloaded = { downloaded ->
@@ -1566,8 +1613,11 @@ private fun RecorderScreen(
       confirmButton = {
         Button(onClick = {
           val ids = pendingDeleteIds
-          val targets = recordings.filter { it.id in ids }
-          if (recordingFilter == RecordingListFilter.UPLOADED) {
+          val targets = appStore.snapshot.value.recordings.filter { it.id in ids }
+          if (targets.any { it.uploadState == UploadState.PROCESSING || it.uploadState == UploadState.UPLOADING }) {
+            pendingDeleteIds = emptySet()
+            onMessage("此录音正在转换或上传，请完成后再修改或删除")
+          } else if (recordingFilter == RecordingListFilter.UPLOADED) {
             scope.launch {
               runCatching {
                   targets.forEach { firebaseRepository.deleteUploadedRecordingMetadata(it) }

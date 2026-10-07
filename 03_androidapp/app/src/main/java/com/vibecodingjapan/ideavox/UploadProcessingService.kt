@@ -9,12 +9,14 @@ import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -28,6 +30,10 @@ class UploadProcessingService : Service() {
   private var wakeLock: PowerManager.WakeLock? = null
   private var foregroundStarted = false
   private var processingJob: Job? = null
+  private var lastProgressAt = 0L
+  private var lastProgressPhase: String? = null
+  private var lastProgressDetail: String? = null
+  private var lastProgressValue = -1
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -40,10 +46,13 @@ class UploadProcessingService : Service() {
     }
     if (intent?.action == ACTION_PROCESS) {
       if (processingJob?.isActive == true) {
-        updateProgress("已有上传任务正在进行", "请等待当前任务完成，或先取消当前任务", UploadRuntime.state.value.progress)
         return START_REDELIVER_INTENT
       }
       UploadRuntime.begin("准备处理", "正在初始化任务")
+      lastProgressPhase = null
+      lastProgressDetail = null
+      lastProgressValue = -1
+      lastProgressAt = 0L
       acquireWakeLock()
       startForeground(UPLOAD_PROGRESS_NOTIFICATION_ID, progressNotification("准备处理", "正在初始化任务", 0, true))
       foregroundStarted = true
@@ -283,7 +292,7 @@ class UploadProcessingService : Service() {
   private fun restoreOriginalRecordings(items: List<RecordingItem>, processingError: String? = null) {
     items.forEach { original ->
       appStore.updateRecording(original.id) {
-        original.copy(
+        it.copy(
           uploadState = UploadState.LOCAL,
           uploadProgress = 0,
           error = processingError,
@@ -293,6 +302,15 @@ class UploadProcessingService : Service() {
   }
 
   private fun updateProgress(phase: String, detail: String, progress: Int) {
+    val now = SystemClock.elapsedRealtime()
+    val value = progress.coerceIn(0, 100)
+    if (phase == lastProgressPhase && detail == lastProgressDetail && value < 100 &&
+      (value == lastProgressValue || now - lastProgressAt < 400L)
+    ) return
+    lastProgressPhase = phase
+    lastProgressDetail = detail
+    lastProgressValue = value
+    lastProgressAt = now
     UploadRuntime.update(phase, detail, progress)
     if (foregroundStarted) {
       (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
@@ -467,7 +485,12 @@ object AudioProcessor {
             )
           }
         }
-      if (normalizedSpeed == 1.0f) {
+      // A single canonical WAV at 1x can feed AAC directly without a full disk copy.
+      val directAacInput = format == UploadOutputFormat.AAC_M4A && normalizedSpeed == 1.0f && inputFiles.size == 1
+      val encodingSource = if (directAacInput) inputFiles.single() else mergedWav
+      if (directAacInput) {
+        onProgress("正在转换为 M4A", 55)
+      } else if (normalizedSpeed == 1.0f) {
         WavAudio.merge(
           inputs = inputFiles,
           output = mergedWav,
@@ -484,21 +507,21 @@ object AudioProcessor {
         )
       }
       validateDuration(
-        output = mergedWav,
+        output = encodingSource,
         expectedDurationMs = expectedDurationMs,
         context = context,
         stage = "合并",
       )
-      val mergedDurationMs = WavAudio.durationMs(mergedWav).takeIf { it > 0L } ?: expectedDurationMs
+      val mergedDurationMs = WavAudio.durationMs(encodingSource).takeIf { it > 0L } ?: expectedDurationMs
       return when (format) {
         UploadOutputFormat.WAV -> output
         UploadOutputFormat.AAC_M4A ->
           AacAudio.encodeWavToM4a(
-            mergedWav,
+            encodingSource,
             output,
             onProgress = { progress -> onProgress("正在转换为 M4A", 55 + ((progress * 30) / 100)) },
             shouldCancel = shouldCancel,
-          ).also { mergedWav.delete() }
+          ).also { if (!directAacInput) mergedWav.delete() }
         UploadOutputFormat.MP3 -> {
           val scriptFile = File(workDir, "lame.all.js").takeIf { it.exists() }
           Mp3Audio.encodeWavToMp3(
@@ -597,22 +620,29 @@ object UploadRuntime {
   }
 
   fun update(phase: String, detail: String, progress: Int) {
-    if (!state.value.active) return
-    if (state.value.terminal) return
-    state.value =
-      state.value.copy(
+    state.update { current ->
+      if (!current.active || current.terminal) return@update current
+      current.copy(
         phase = phase,
         detail = detail,
         progress = progress.coerceIn(0, 100),
         elapsedMs = System.currentTimeMillis() - startedAt,
         cancellable = !cancelRequested.get(),
       )
+    }
+  }
+
+  fun minimize() {
+    state.update { if (it.active) it.copy(minimized = true) else it }
+  }
+
+  fun restore() {
+    state.update { if (it.active) it.copy(minimized = false) else it }
   }
 
   fun fail(message: String) {
     val now = System.currentTimeMillis()
-    val current = state.value
-    state.value =
+    state.update { current ->
       current.copy(
         active = true,
         phase = "上传失败",
@@ -622,6 +652,7 @@ object UploadRuntime {
         terminal = true,
         error = message,
       )
+    }
     cancelRequested.set(false)
   }
 

@@ -126,6 +126,7 @@ data class UploadTaskUiState(
   val cancellable: Boolean = false,
   val terminal: Boolean = false,
   val error: String? = null,
+  val minimized: Boolean = false,
 )
 
 enum class RecordingStatus {

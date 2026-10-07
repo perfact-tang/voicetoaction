@@ -187,18 +187,20 @@ object WavAudio {
       var outputSampleIndex = 0L
       var pcmBytes = 0L
       var consumedBytes = 0L
-      inputs.forEachPcmSample { sample ->
-        if (shouldCancel()) throw CancellationException("已取消")
-        val nextSourceIndex = floor(outputSampleIndex * speed).toLong()
-        if (inputSampleIndex == nextSourceIndex) {
-          file.writeShortLe(sample.toInt())
-          pcmBytes += BYTES_PER_SAMPLE
-          outputSampleIndex += 1
-        }
-        inputSampleIndex += 1
-        consumedBytes += BYTES_PER_SAMPLE
-        if (consumedBytes % (BYTES_PER_SAMPLE * 8192L) == 0L) {
-          onProgress(((consumedBytes * 55) / totalPcmBytes).toInt().coerceIn(1, 55))
+      Pcm16Output(FileOutputStream(output, true)).use { target ->
+        inputs.forEachPcmSample { sample ->
+          if (shouldCancel()) throw CancellationException("已取消")
+          val nextSourceIndex = floor(outputSampleIndex * speed).toLong()
+          if (inputSampleIndex == nextSourceIndex) {
+            target.write(sample.toInt())
+            pcmBytes += BYTES_PER_SAMPLE
+            outputSampleIndex += 1
+          }
+          inputSampleIndex += 1
+          consumedBytes += BYTES_PER_SAMPLE
+          if (consumedBytes % (BYTES_PER_SAMPLE * 8192L) == 0L) {
+            onProgress(((consumedBytes * 55) / totalPcmBytes).toInt().coerceIn(1, 55))
+          }
         }
       }
       updateHeader(file, pcmBytes)

@@ -117,6 +117,9 @@ cp .env.example .env
 | `SKILLS_RUNNER_BIN` | 可选 | aiskillsrunner 路径（默认用仓库里的 `01_aiskillsrunner/aiskillsrunner.js`，由同一个 node 执行） |
 | `DSH_BIN` | 可选 | dsh 可执行文件（默认由 aiskillsrunner 从 PATH 查找；子进程 PATH 会自动补上当前 node 目录） |
 | `SKILLS_RUNNER_TIMEOUT_MS` | 可选 | 单次 skill 执行超时（默认 5400000 = 1.5 小时；视频渲染类 skill 至少 1.5 小时） |
+| `SKILL_VERIFY_UPLOAD` | 可选 | skill 退出码为 0 时是否再做产物校验（默认 `true`） |
+| `SKILL_VERIFY_NAMES` | 可选 | 做产物校验的 skill 名单（默认只含 `audio-to-multilingual-blog`；`*` = 全部） |
+| `SKILL_RESUME_ATTEMPTS` | 可选 | 产物不完整时自动续跑的回合数（默认 `2`，`0` = 关闭，上限 `5`） |
 | `STT_OUTPUT_DIR` | 可选 | STT 文本在本机的保存目录（默认 `monitor-data/stt`） |
 | `DSH_PERMISSION_MODE` | 可选 | 传给 `dsh` 的权限模式（默认 `danger-full-access`） |
 | `FCM_ENABLED` | 可选 | 任务结束后是否推送 FCM 通知（默认 `true`，设 `false` 关闭） |
@@ -207,14 +210,24 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 原因：`aiskillsrunner` 用 `dsh --profile headless`，是**单回合**语义 —— agent 一旦结束回合，
 进程立即退出，仍在运行的后台子代理（翻译）会被一并杀掉，**退出码却仍是 0**。
 
-两道防线（都已内置）：
+三道防线（都已内置）：
 
 1. **skill 侧**：`SKILL.md` 第 1.5 节要求翻译在本回合内同步完成，且最终报告最后一行必须输出
-   `SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>`。
+   `SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>`。`aiskillsrunner` 组成任务文本时还会额外
+   写入「执行纪律」：必须用 `write`/`bash` 真正写文件、禁止把整篇正文只写在 reasoning 里。
 2. **后端侧**：退出码为 0 后再做产物校验（`SKILL_VERIFY_UPLOAD`，默认开）——
    从 skill 输出取 DocID（取不到就按输出目录 mtime 兜底，且要求 4 个文件齐全），
    再查 `mkblog/<DocID>` 是否存在；不存在就记 `failed`（启动自愈会重试，不会再假成功）。
    校验名单默认只含 `audio-to-multilingual-blog`，用 `SKILL_VERIFY_NAMES` 调整。
+
+3. **后端侧（自动续跑）**：`SKILL_RESUME_ATTEMPTS`（默认 `2`）——
+   headless 是单回合语义，agent 提前结束回合＝进程退出，同一次调用无法再续，
+   所以要接着做只能**再起一个回合**。产物校验不过时，后端会重新调用一次 `aiskillsrunner`，
+   并在 `--prompt` 里写明「已有哪个输出目录、哪些文件非空、还缺哪些文件、用哪个 DocID 上传」，
+   让它只补做缺失步骤：**不重发整份 STT，也不重写已完成的文件**。
+   只有当上一轮什么产物都没留下时，才重新附上参考文件从头重做。
+   例如 2026-10-08 那次失败：`1791443034864/` 里只有 `中文.md`、`日文.md`，
+   续跑提示词会直接点名缺 `英文.md`、`文章信息.json`，并在补齐后以同一个 DocID 上传。
 
 人工补做已产出的半成品：补上缺失文件 → 自检 4 文件 → 调用一次
 `bash monitor-data/skills/audio-to-multilingual-blog/scripts/upload-blog.sh <DocID>`。

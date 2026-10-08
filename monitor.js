@@ -14,17 +14,20 @@
 import admin from "firebase-admin";
 import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   SKILL_SERVICE_TYPE,
+  buildSkillResumePrompt,
+  inspectSkillOutputs,
   localSkillInstalled,
   recordLocalSkill,
   removeLocalSkill,
   resolveSkillInstall,
-  runAiskillsrunner
+  runAiskillsrunner,
+  runSkillWithResume
 } from "./monitor-skills.js";
 import { sendJobNotification } from "./monitor-notify.js";
 
@@ -161,6 +164,16 @@ function normalizeSkillNameList(value) {
   return [...new Set(items.map((item) => String(item || "").trim()).filter(Boolean))];
 }
 
+/**
+ * 产物校验不过时，最多再「续跑」几个回合（headless 是单回合语义，续跑 = 再起一次
+ * `dsh --profile headless`）。默认 2，0 = 关闭续跑，上限 5 防止无限烧配额。
+ */
+function normalizeSkillResumeAttempts(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 2;
+  return Math.min(5, Math.trunc(parsed));
+}
+
 function parseGsUrl(value) {
   const match = String(value || "").match(/^gs:\/\/([^/]+)\/(.+)$/);
   if (!match) throw new Error(`recordFile 必须是 gs:// URL: ${value}`);
@@ -203,6 +216,8 @@ const state = {
     verifySkillUpload: true,
     /** 需要做产物校验的 skill 名单（默认见 DEFAULT_VERIFY_SKILL_NAMES）。 */
     verifySkillNames: [...DEFAULT_VERIFY_SKILL_NAMES],
+    /** 产物校验不过时最多再续跑几个回合（0 = 关闭）。 */
+    skillResumeAttempts: 2,
     // ---- FCM 推送 ----
     fcmEnabled: true
   },
@@ -657,38 +672,11 @@ function extractDocIds(text) {
   return [...ids];
 }
 
-/** 输出目录是否已包含全部 4 个非空文件（半成品目录不能当成本次产物）。 */
-function hasCompleteOutput(dir) {
-  for (const name of SKILL_OUTPUT_FILES) {
-    try {
-      if (statSync(join(dir, name)).size <= 0) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
-}
-
 /** 兜底：本次执行窗口内被写过、且 4 个文件齐全的输出目录名，作为 DocID 候选。 */
 function recentDocIdDirs(startedAtMs) {
-  let entries;
-  try {
-    entries = readdirSync(skillTmpRoot, { withFileTypes: true });
-  } catch {
-    return []; // 目录不存在 = 没有产物
-  }
-  const ids = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !/^\d{10,}$/.test(entry.name)) continue;
-    const dir = join(skillTmpRoot, entry.name);
-    try {
-      if (statSync(dir).mtimeMs < startedAtMs - 90_000) continue;
-    } catch {
-      continue; // 目录刚被删掉：忽略
-    }
-    if (hasCompleteOutput(dir)) ids.push(entry.name);
-  }
-  return ids;
+  return inspectSkillOutputs({ root: skillTmpRoot, startedAtMs, files: SKILL_OUTPUT_FILES })
+    .filter((output) => output.complete)
+    .map((output) => output.docId);
 }
 
 /** 返回 true=存在 / false=不存在 / null=查询失败（无法判定，不能算失败）。 */
@@ -1022,56 +1010,109 @@ async function processSkillJob(job) {
     entry.skillName = service.skillName;
     entry.skillVersion = service.version;
   });
-  log(`正在执行 skill「${service.skillName}」（aiskillsrunner，userid=${job.userId || "(空)"}）...`);
-  const runResult = await runAiskillsrunner({
-    runnerBin: state.config.skillsRunnerBin,
-    skillsDir: state.config.skillsDir,
-    skillName: service.skillName,
-    refPath: textPath,
-    userId: job.userId,
-    firebaseKeyPath: state.config.adminKeyPath,
-    installUrl: service.installUrl,
-    forceInstall: needsInstall,
-    dshPermissionMode: state.config.dshPermissionMode,
-    dshBin: state.config.skillsDshBin,
-    cwd: projectRoot,
-    timeoutMs: state.config.skillsRunnerTimeoutMs,
-    // 把 aiskillsrunner / dsh 的输出实时写进监控日志，避免「卡住了但看不到任何信息」
-    onLine: (stream, text) => {
-      const trimmed = String(text || "").trim();
-      if (!trimmed) return;
-      log(stream === "system" ? trimmed : `[skill:${stream}] ${trimmed.slice(0, 400)}`);
+  const skillRunStartedAtMs = Date.now();
+  const localSkillDir = join(state.config.skillsDir, service.skillName);
+  const maxSkillAttempts = 1 + state.config.skillResumeAttempts;
+
+  // headless 单回合语义：回合提前结束 = 进程退出，续跑只能「再起一个回合」。
+  // 这里的循环负责：执行 → 校验产物 → 不完整就带着「还缺什么」续跑。
+  const loopResult = await runSkillWithResume({
+    maxAttempts: maxSkillAttempts,
+    inspect: () =>
+      inspectSkillOutputs({
+        root: skillTmpRoot,
+        startedAtMs: skillRunStartedAtMs,
+        files: SKILL_OUTPUT_FILES
+      }),
+    buildResumePrompt: ({ outputs }) =>
+      buildSkillResumePrompt({
+        skillName: service.skillName,
+        skillDir: localSkillDir,
+        outputs,
+        sttPath: textPath,
+        tmpRoot: skillTmpRoot
+      }),
+    run: async ({ attempt, isResume, attachRef, resumePrompt, outputs }) => {
+      if (isResume) {
+        log(
+          `skill「${service.skillName}」第 ${attempt}/${maxSkillAttempts} 次执行（续跑）：` +
+            `上一回合提前结束，${outputs.length ? `带着输出目录 ${outputs[0].dir} 继续` : "尚无输出目录，从头重做"}...`
+        );
+        updateJob(job.id, (entry) => {
+          entry.stage = "running_skill";
+          entry.errorMessage = `上一轮产物不完整，正在续跑（第 ${attempt} 次执行）`;
+        });
+      } else {
+        log(`正在执行 skill「${service.skillName}」（aiskillsrunner，userid=${job.userId || "(空)"}）...`);
+      }
+
+      const runResult = await runAiskillsrunner({
+        runnerBin: state.config.skillsRunnerBin,
+        skillsDir: state.config.skillsDir,
+        skillName: service.skillName,
+        prompt: resumePrompt,
+        refPath: attachRef ? textPath : undefined,
+        userId: job.userId,
+        firebaseKeyPath: state.config.adminKeyPath,
+        installUrl: service.installUrl,
+        forceInstall: needsInstall && !isResume,
+        dshPermissionMode: state.config.dshPermissionMode,
+        dshBin: state.config.skillsDshBin,
+        cwd: projectRoot,
+        timeoutMs: state.config.skillsRunnerTimeoutMs,
+        // 把 aiskillsrunner / dsh 的输出实时写进监控日志，避免「卡住了但看不到任何信息」
+        onLine: (stream, text) => {
+          const trimmed = String(text || "").trim();
+          if (!trimmed) return;
+          log(stream === "system" ? trimmed : `[skill:${stream}] ${trimmed.slice(0, 400)}`);
+        }
+      });
+      log(
+        `skill「${service.skillName}」进程结束（第 ${attempt} 次）：exit=${runResult.code}` +
+          `${runResult.timedOut ? "（超时）" : ""}，耗时 ${Math.round((runResult.durationMs || 0) / 1000)}s`
+      );
+
+      const attemptOutput = String(runResult.stdout || "").trim();
+      if (attemptOutput) log(`[skill] ${attemptOutput.slice(0, 400)}${attemptOutput.length > 400 ? "…" : ""}`);
+      if (runResult.timedOut) {
+        return { ok: false, error: `skill「${service.skillName}」执行超时（${state.config.skillsRunnerTimeoutMs} ms）。` };
+      }
+      if (runResult.code !== 0) {
+        const reason = String(runResult.stderr || "")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .slice(-6)
+          .join(" ")
+          .slice(0, 500);
+        return {
+          ok: false,
+          error: `skill「${service.skillName}」执行失败（exit ${runResult.code}）：${reason || "无错误输出"}`
+        };
+      }
+      return { ok: true, runResult, output: attemptOutput };
+    },
+    // 退出码 0 ≠ 真的做完：独立校验产物，避免 headless 回合提前结束造成的假成功
+    verify: ({ output }) =>
+      verifySkillUpload({
+        skillName: service.skillName,
+        stdout: output,
+        startedAtMs: skillRunStartedAtMs
+      }),
+    onEvent: (event) => {
+      if (event.type === "retry") {
+        log(
+          `第 ${event.attempt} 次执行的产物校验未通过，准备续跑（最多再试 ${event.total - event.attempt} 次）：` +
+            event.error
+        );
+      }
     }
   });
-  log(
-    `skill「${service.skillName}」进程结束：exit=${runResult.code}` +
-      `${runResult.timedOut ? "（超时）" : ""}，耗时 ${Math.round((runResult.durationMs || 0) / 1000)}s`
-  );
 
-  const output = String(runResult.stdout || "").trim();
-  if (output) log(`[skill] ${output.slice(0, 400)}${output.length > 400 ? "…" : ""}`);
-  if (runResult.timedOut) {
-    return `skill「${service.skillName}」执行超时（${state.config.skillsRunnerTimeoutMs} ms）。`;
-  }
-  if (runResult.code !== 0) {
-    const reason = String(runResult.stderr || "")
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .slice(-6)
-      .join(" ")
-      .slice(0, 500);
-    return `skill「${service.skillName}」执行失败（exit ${runResult.code}）：${reason || "无错误输出"}`;
-  }
-  // 退出码 0 ≠ 真的做完：独立校验产物，避免 headless 回合提前结束造成的假成功
-  const uploadCheck = await verifySkillUpload({
-    skillName: service.skillName,
-    stdout: output,
-    startedAtMs: Date.now() - (runResult.durationMs || 0)
-  });
-  if (uploadCheck.error) {
-    return uploadCheck.error;
-  }
+  if (loopResult.status === "failed") return loopResult.error;
+
+  const output = loopResult.output;
+  const uploadCheck = loopResult.check;
   if (uploadCheck.verified) {
     log(`产物校验通过：${blogCollection}/${uploadCheck.docId} 已存在（匹配依据：${uploadCheck.matchedBy}）`);
   } else if (uploadCheck.skipped) {
@@ -1357,6 +1398,7 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
       const names = normalizeSkillNameList(raw);
       return names.includes("*") ? [] : names; // [] = 名单为空 = 对所有 skill 生效
     })(),
+    skillResumeAttempts: normalizeSkillResumeAttempts(config?.skillResumeAttempts),
     fcmEnabled: config?.fcmEnabled !== false
   };
 

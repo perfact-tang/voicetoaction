@@ -194,6 +194,9 @@ const monitorConfig = {
   verifySkillUpload: process.env.SKILL_VERIFY_UPLOAD !== "false",
   // 需要做产物校验的 skill 名单（逗号分隔；未设置 = 用 monitor.js 的默认值；* = 全部）
   verifySkillNames: process.env.SKILL_VERIFY_NAMES || null,
+  // 产物校验不过时最多再续跑几个回合（0 = 关闭；未设置 = 默认 2）。
+  // headless 是单回合语义：agent 提前结束回合 = 进程退出，唯一能接着做的就是再起一个回合。
+  skillResumeAttempts: process.env.SKILL_RESUME_ATTEMPTS ?? null,
   // ---- FCM 推送 ----
   fcmEnabled: process.env.FCM_ENABLED !== "false"
 };

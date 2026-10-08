@@ -408,6 +408,15 @@ function composeTask(skill, prompt, ref, extras = []) {
   // "/名称" 令牌：确定性加载并注入该 skill 的指令内容。
   parts.push(`/${skill}`);
   parts.push(`请使用已安装的 skill "${skill}" 完成以下任务，并在完成后输出处理结果报告。`);
+  // headless 是单回合语义：回合一结束进程就退出，没有「下次再继续」。
+  // 实测最常见的翻车方式是 agent 把整篇正文写进 reasoning、耗尽输出预算后直接结束回合，
+  // 文件没落盘、上传没跑到，退出码却仍是 0。这里先把纪律写死在任务文本里。
+  parts.push(
+    '执行纪律（headless 单回合语义，必须遵守）：\n' +
+      '- 必须用工具（write / edit / bash）把文件**真正写到磁盘**；禁止把整篇正文只写在 reasoning 里。\n' +
+      '- 每写完一个文件，就用 bash 确认它存在且非空，再进入下一步。\n' +
+      '- 所有步骤（含上传与最终结果报告）完成之前，不要结束回合；也不要以「稍等 / 正在处理」收尾。'
+  );
 
   if (prompt && prompt.trim()) {
     parts.push(`任务提示词：\n${prompt.trim()}`);

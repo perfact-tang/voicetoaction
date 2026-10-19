@@ -35,6 +35,18 @@ data class BluetoothGestureTransition(
 object BluetoothGestureStateMachine {
   const val START_CONFIRMATION_WINDOW_MS = 5_000L
   const val UPLOAD_CONFIRMATION_WINDOW_MS = 10_000L
+  /**
+   * The call-only swipe flow keeps SCO while the glasses speak the upload
+   * prompt. The total window includes the prompt; roughly five seconds remain
+   * for the second backward swipe after the prompt finishes.
+   */
+  const val VOICE_UPLOAD_CONFIRMATION_WINDOW_MS = 8_000L
+  /**
+   * Keep accepting the confirmation for a short time after the spoken
+   * countdown reaches one. The physical tap and the HFP/voice-command delivery
+   * can arrive a few hundred milliseconds after the user starts the gesture.
+   */
+  const val CONFIRMATION_GRACE_MS = 1_500L
   private const val STARTING_TIMEOUT_MS = 12_000L
 
   fun onTelecomEnd(
@@ -84,7 +96,7 @@ object BluetoothGestureStateMachine {
             return BluetoothGestureTransition(phase.copy(stopRequested = true), BluetoothGestureEffect.Ignore)
           }
           return BluetoothGestureTransition(
-            BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS),
+            BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS + CONFIRMATION_GRACE_MS),
             BluetoothGestureEffect.ArmRecordingStart,
           )
         }
@@ -101,7 +113,7 @@ object BluetoothGestureStateMachine {
       )
     } else {
       BluetoothGestureTransition(
-        phase = BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS),
+        phase = BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS + CONFIRMATION_GRACE_MS),
         effect = BluetoothGestureEffect.ArmRecordingStart,
       )
     }
@@ -118,14 +130,19 @@ object BluetoothGestureStateMachine {
     }
   }
 
-  fun onRecordingFinalized(phase: BluetoothGesturePhase, recordingId: String, now: Long): BluetoothGestureTransition {
+  fun onRecordingFinalized(
+    phase: BluetoothGesturePhase,
+    recordingId: String,
+    now: Long,
+    uploadWindowMs: Long = UPLOAD_CONFIRMATION_WINDOW_MS,
+  ): BluetoothGestureTransition {
     if (phase !is BluetoothGesturePhase.PreparingUploadConfirmation || phase.recordingId != recordingId) {
       return BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
     }
     return if (phase.uploadRequested) {
       BluetoothGestureTransition(BluetoothGesturePhase.Idle, BluetoothGestureEffect.StartAutomaticUpload(recordingId))
     } else {
-      BluetoothGestureTransition(armUploadConfirmation(phase, recordingId, now), BluetoothGestureEffect.Ignore)
+      BluetoothGestureTransition(armUploadConfirmation(phase, recordingId, now, uploadWindowMs), BluetoothGestureEffect.Ignore)
     }
   }
 
@@ -133,11 +150,12 @@ object BluetoothGestureStateMachine {
     phase: BluetoothGesturePhase,
     recordingId: String,
     now: Long,
+    uploadWindowMs: Long = UPLOAD_CONFIRMATION_WINDOW_MS,
   ): BluetoothGesturePhase =
     if (phase is BluetoothGesturePhase.PreparingUploadConfirmation && phase.recordingId == recordingId) {
       BluetoothGesturePhase.AwaitingUploadConfirmation(
         recordingId = recordingId,
-        expiresAt = now + UPLOAD_CONFIRMATION_WINDOW_MS,
+        expiresAt = now + uploadWindowMs + CONFIRMATION_GRACE_MS,
       )
     } else {
       phase

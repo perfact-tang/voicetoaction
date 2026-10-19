@@ -1,5 +1,27 @@
 package com.vibecodingjapan.ideavox
 
+/** Callback events delivered by Telecom/Bluetooth for the control call. */
+internal enum class BluetoothCallControlEvent {
+  HOLD,
+  UNHOLD,
+  ANSWER,
+  DISCONNECT,
+  ABORT,
+}
+
+/**
+ * The control call deliberately implements no hold/conference/answer feature.
+ * Only the real hang-up paths may end the associated recording; hold, unhold
+ * and answer must never be interpreted as a stop command.
+ */
+internal object BluetoothCallControlPolicy {
+  /** No HOLD / SUPPORT_HOLD capabilities, so a headset cannot route a gesture to hold. */
+  const val CONNECTION_CAPABILITIES = 0
+
+  fun endsRecording(event: BluetoothCallControlEvent): Boolean =
+    event == BluetoothCallControlEvent.DISCONNECT || event == BluetoothCallControlEvent.ABORT
+}
+
 /** Identity and readiness for one call only. Late callbacks must not mutate its successor. */
 internal class BluetoothCallLifecycle {
   data class Session(

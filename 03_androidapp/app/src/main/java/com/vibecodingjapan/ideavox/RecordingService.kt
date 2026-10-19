@@ -64,20 +64,40 @@ class RecordingService : Service() {
   private var currentAICallingInfo: String? = null
   private var currentServiceId: String? = null
   private var currentServiceType: String? = null
-  private val volumeStopGate = BluetoothVolumeStopGate()
+  // Use the backward/volume-down temple swipe. The Bluetooth stack
+  // synchronizes its stored SCO volume upward after AudioOn; a volume-up gate
+  // would see that sync as a swipe. Volume-down is not produced by the sync.
+  private val volumeStopGate = BluetoothVolumeStopGate(minDelayMs = 10_000L, direction = -1)
+  private val uploadVolumeGate = BluetoothVolumeStopGate(minDelayMs = 1_200L, direction = -1)
   private var originalCallVolume: Int? = null
   private var reservedCallVolume: Int? = null
+  private var uploadOriginalVolume: Int? = null
+  private var uploadReservedVolume: Int? = null
+  private var sessionOriginalVolume: Int? = null
+  @Volatile private var keepScoForUpload = false
+  @Volatile private var awaitingUploadConfirmation = false
   private val volumeStopReceiver = object : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
       val state = RecordingRuntime.state.value
-      if (!appStore.snapshot.value.bluetoothVolumeStopEnabled || BluetoothTouchDiagnostics.active || !RecordingRuntime.activeInputIsBluetooth) return
-      if (state.status != RecordingStatus.RECORDING && state.status != RecordingStatus.PAUSED) return
+      if (!appStore.snapshot.value.bluetoothVolumeStopEnabled || BluetoothTouchDiagnostics.active) return
       val stream = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
       val previous = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
       val value = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
+      if (state.status != RecordingStatus.RECORDING && state.status != RecordingStatus.PAUSED) {
+        // After the stop swipe, SCO stays open for the spoken five-second
+        // upload prompt. A second forward swipe confirms the upload.
+        if (!keepScoForUpload || !awaitingUploadConfirmation) return
+        if (uploadVolumeGate.accept(currentId, stream, previous, value, android.os.SystemClock.elapsedRealtime())) {
+          awaitingUploadConfirmation = false
+          android.util.Log.i(TAG, "upload confirmation by volume swipe recording=$currentId stream=$stream $previous->$value")
+          BluetoothRecordingWorkflow.handleUploadConfirmation(this@RecordingService, currentId, source = "volume")
+        }
+        return
+      }
+      if (!RecordingRuntime.activeInputIsBluetooth) return
       if (volumeStopGate.accept(state.activeRecordingId, stream, previous, value, android.os.SystemClock.elapsedRealtime())) {
-        android.util.Log.i(TAG, "optional volume-up stop recording=${state.activeRecordingId} stream=$stream $previous->$value")
-        BluetoothRecordingWorkflow.handleTelecomEnd(this@RecordingService, state.activeRecordingId)
+        android.util.Log.i(TAG, "optional volume swipe stop recording=${state.activeRecordingId} stream=$stream $previous->$value")
+        BluetoothRecordingWorkflow.handleTelecomEnd(this@RecordingService, state.activeRecordingId, source = "volume")
       }
     }
   }
@@ -113,6 +133,7 @@ class RecordingService : Service() {
             }
           }
           ACTION_SET_INPUT_DEVICE -> setInputDevice(intent)
+          ACTION_RELEASE_UPLOAD_ROUTE -> releaseUploadRoute()
         }
       }.onFailure { error ->
         android.util.Log.e(TAG, "recording command failed action=${intent?.action}", error)
@@ -126,7 +147,7 @@ class RecordingService : Service() {
         }
       }
       android.util.Log.i(TAG, "command=${intent?.action} elapsedMs=${android.os.SystemClock.elapsedRealtime() - began}")
-      if (recorder == null) stopSelfResult(startId)
+      if (recorder == null && !keepScoForUpload) stopSelfResult(startId)
     }
     return START_STICKY
   }
@@ -150,8 +171,12 @@ class RecordingService : Service() {
         else -> appStore.snapshot.value.selectedRecordingDeviceId
       }
     val requireBluetoothInput = intent?.getBooleanExtra(EXTRA_REQUIRE_BLUETOOTH_INPUT, false) == true
+    // Voice-command triggers use direct SCO instead of a Telecom call. This
+    // keeps the glasses out of call state so their double-tap can keep sending
+    // HFP AT+BVRA for every step, including while the microphone is recording.
+    val forceDirectSco = intent?.getBooleanExtra(EXTRA_FORCE_DIRECT_SCO, false) == true
     val telecomControlPrewarmed =
-      intent?.getBooleanExtra(EXTRA_TELECOM_CONTROL_PREWARMED, false) == true
+      !forceDirectSco && intent?.getBooleanExtra(EXTRA_TELECOM_CONTROL_PREWARMED, false) == true
     var selectedInput = AudioDeviceSelection.findInput(this, requestedInputDeviceId)
     if (requireBluetoothInput && selectedInput?.let(AudioDeviceSelection::isBluetoothInput) != true) {
       selectedInput = AudioDeviceSelection.bluetoothInput(this)
@@ -180,13 +205,14 @@ class RecordingService : Service() {
     RecordingRuntime.activeInputIsBluetooth = selectedBluetoothInput
     if (selectedBluetoothInput) BluetoothRecordingTelecom.observeBluetoothAudio(this)
     val useTelecomBluetoothControl =
-      selectedBluetoothInput && shouldUseTelecomBluetoothControl(selectedInput.type)
+      !forceDirectSco && selectedBluetoothInput && shouldUseTelecomBluetoothControl(selectedInput.type)
     currentInputDeviceId = selectedInput?.id
     currentUseCommunicationRoute = selectedBluetoothInput
     currentUseTelecomControl = useTelecomBluetoothControl
     android.util.Log.i(
       TAG,
-      "bluetooth control route mode=${appStore.snapshot.value.bluetoothRecordingControlMode} inputType=${selectedInput?.type}, telecomFallback=$currentUseTelecomControl",
+      "bluetooth control route mode=${appStore.snapshot.value.bluetoothRecordingControlMode} inputType=${selectedInput?.type}, " +
+        "telecomFallback=$currentUseTelecomControl directSco=$forceDirectSco",
     )
     // Telecom already owns MODE_IN_CALL and SCO. A second AudioManager request
     // changes the mode and forces another channel negotiation.
@@ -266,8 +292,16 @@ class RecordingService : Service() {
     RecordingRuntime.activeInputIsBluetooth = selectedBluetoothInput
     shouldRecord.set(true)
     if (selectedBluetoothInput) {
+      runCatching {
+        sessionOriginalVolume = (getSystemService(AUDIO_SERVICE) as AudioManager)
+          .getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+      }
       if (appStore.snapshot.value.bluetoothVolumeStopEnabled) reserveVolumeHeadroom()
+      // Do not pin the expected start volume: the Bluetooth stack may sync the
+      // headset volume during the guard window, changing the value the user's
+      // swipe starts from. The 5-second guard + exact +1 is the reliable check.
       volumeStopGate.begin(currentId, android.os.SystemClock.elapsedRealtime())
+      android.util.Log.i(TAG, "volume swipe guard 10s recording=$currentId")
     }
     RecordingRuntime.state.value =
       RecorderUiState(
@@ -400,6 +434,7 @@ class RecordingService : Service() {
     val active = recorder ?: return
     volumeStopGate.clear(currentId)
     restoreReservedVolume()
+    val keepSco = intent?.getBooleanExtra(EXTRA_KEEP_SCO_FOR_UPLOAD, false) == true
     val keepInputRouteMs = intent?.getLongExtra(EXTRA_KEEP_INPUT_ROUTE_MS, 0L)?.coerceAtLeast(0L) ?: 0L
     val voicePrompt = intent?.getStringExtra(EXTRA_VOICE_PROMPT).orEmpty()
     shouldRecord.set(false)
@@ -437,6 +472,23 @@ class RecordingService : Service() {
     currentServiceType = null
     currentFile = null
     RecordingRuntime.state.value = RecorderUiState()
+    if (keepSco) {
+      // Keep HFP/SCO alive so the glasses can hear the upload prompt and the
+      // user can confirm with a second forward swipe. Do not stop the
+      // foreground service, do not release the route and do not end the call.
+      keepScoForUpload = true
+      awaitingUploadConfirmation = true
+      reserveUploadHeadroom()
+      uploadVolumeGate.begin(currentId, android.os.SystemClock.elapsedRealtime())
+      startForeground(1001, notification("录音已结束，等待前滑上传"))
+      android.util.Log.i(
+        TAG,
+        "recording stopped; keeping SCO for upload confirmation recording=$currentId " +
+          "reservedVolume=${uploadReservedVolume}",
+      )
+      BluetoothRecordingWorkflow.onRecordingFinalized(this, currentId, keepScoForUpload = true)
+      return
+    }
     RecordingRuntime.activeInputIsBluetooth = false
     stopForeground(STOP_FOREGROUND_REMOVE)
     // Finalize the file and release the old route before arming upload. Fixed
@@ -451,13 +503,14 @@ class RecordingService : Service() {
     BluetoothRecordingTelecom.endFromApp(currentId)
     BluetoothRecordingWorkflow.onRecordingFinalized(this, currentId)
     BluetoothMediaButtonService.rearm(this)
+    restoreSessionVolume()
   }
 
   override fun onDestroy() {
     unregisterReceiver(volumeStopReceiver)
     commands.execute {
       try {
-        if (recorder != null) stopRecording(null)
+        if (recorder != null) stopRecording(null) else if (keepScoForUpload) releaseUploadRoute()
       } finally {
         serviceScope.cancel()
       }
@@ -552,12 +605,12 @@ class RecordingService : Service() {
     runCatching {
       val audio = getSystemService(AUDIO_SERVICE) as AudioManager
       val current = audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
-      val target = BluetoothVolumeStopGate.withHeadroom(current, audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL))
+      val target = BluetoothVolumeStopGate.withDownHeadroom(current, minCallVolume(audio))
       if (target != current) {
         originalCallVolume = current
         reservedCallVolume = target
         audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
-        android.util.Log.i(TAG, "reserved volume-up gesture headroom $current->$target recording=$currentId")
+        android.util.Log.i(TAG, "reserved volume-down gesture headroom $current->$target recording=$currentId")
       }
     }.onFailure { android.util.Log.w(TAG, "unable to reserve call volume headroom", it) }
   }
@@ -577,11 +630,89 @@ class RecordingService : Service() {
     }.onFailure { android.util.Log.w(TAG, "unable to restore reserved call volume", it) }
   }
 
+  private fun minCallVolume(audio: AudioManager): Int =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      audio.getStreamMinVolume(AudioManager.STREAM_VOICE_CALL)
+    } else {
+      1
+    }
+
+  /** Leave one step of downward headroom for the second (upload) back swipe. */
+  private fun reserveUploadHeadroom() {
+    runCatching {
+      val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+      val current = audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+      val target = BluetoothVolumeStopGate.withDownHeadroom(current, minCallVolume(audio))
+      uploadOriginalVolume = current
+      uploadReservedVolume = target
+      if (target != current) {
+        audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
+      }
+      android.util.Log.i(TAG, "reserved upload confirmation headroom $current->$target recording=$currentId")
+    }.onFailure { android.util.Log.w(TAG, "unable to reserve upload confirmation headroom", it) }
+  }
+
+  private fun restoreUploadVolume() {
+    val original = uploadOriginalVolume
+    val reserved = uploadReservedVolume
+    uploadOriginalVolume = null
+    uploadReservedVolume = null
+    if (original == null || reserved == null) return
+    runCatching {
+      val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+      if (audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL) == reserved) {
+        audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, original, 0)
+      }
+    }.onFailure { android.util.Log.w(TAG, "unable to restore upload confirmation volume", it) }
+  }
+
+  /**
+   * Control swipes are not a volume preference. Restore at least max-2 so
+   * repeated recording cycles do not drift the call volume down to minimum.
+   */
+  private fun restoreSessionVolume() {
+    val original = sessionOriginalVolume
+    sessionOriginalVolume = null
+    runCatching {
+      val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+      val min = minCallVolume(audio)
+      val max = audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+      val base = original ?: audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+      val target = maxOf(base, max - 2).coerceIn(min, max)
+      audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
+      android.util.Log.i(TAG, "restored call volume to $target recording=$currentId")
+    }.onFailure { android.util.Log.w(TAG, "unable to restore session call volume", it) }
+  }
+
+  /** Close the kept SCO/call only after upload success, failure or timeout. */
+  private fun releaseUploadRoute() {
+    if (!keepScoForUpload) return
+    keepScoForUpload = false
+    awaitingUploadConfirmation = false
+    uploadVolumeGate.clear(currentId)
+    restoreUploadVolume()
+    AudioDeviceSelection.restoreInputRoute(this, currentInputRoute)
+    currentInputRoute = null
+    currentInputDeviceId = null
+    currentUseCommunicationRoute = false
+    currentUseTelecomControl = false
+    RecordingRuntime.activeInputIsBluetooth = false
+    BluetoothRecordingTelecom.endFromApp(currentId)
+    // Restore after SCO is released; otherwise the stack's teardown sync
+    // overwrites the value again.
+    restoreSessionVolume()
+    BluetoothMediaButtonService.rearm(this)
+    android.util.Log.i(TAG, "released upload control route recording=$currentId")
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+
   companion object {
     const val ACTION_START = "com.vibecodingjapan.ideavox.record.START"
     const val ACTION_PAUSE = "com.vibecodingjapan.ideavox.record.PAUSE"
     const val ACTION_RESUME = "com.vibecodingjapan.ideavox.record.RESUME"
     const val ACTION_STOP = "com.vibecodingjapan.ideavox.record.STOP"
+    const val ACTION_RELEASE_UPLOAD_ROUTE = "com.vibecodingjapan.ideavox.record.RELEASE_UPLOAD_ROUTE"
     private const val ACTION_BLUETOOTH_AUDIO_LOST = "com.vibecodingjapan.ideavox.record.BLUETOOTH_AUDIO_LOST"
 
     fun onBluetoothAudioLost(context: android.content.Context, recordingId: String?) {
@@ -604,6 +735,8 @@ class RecordingService : Service() {
     const val EXTRA_ANNOUNCE_START_ON_BLUETOOTH_ROUTE = "announceStartOnBluetoothRoute"
     const val EXTRA_ANNOUNCE_START_ON_ACTIVE_ROUTE = "announceStartOnActiveRoute"
     const val EXTRA_TELECOM_CONTROL_PREWARMED = "telecomControlPrewarmed"
+    const val EXTRA_FORCE_DIRECT_SCO = "forceDirectSco"
+    const val EXTRA_KEEP_SCO_FOR_UPLOAD = "keepScoForUpload"
     const val EXTRA_AICALLING_ID = "aicallingId"
     const val EXTRA_AICALLING_TITLE = "aicallingTitle"
     const val EXTRA_AICALLING_INFO = "aicallingInfo"

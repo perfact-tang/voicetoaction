@@ -76,7 +76,9 @@ object BluetoothRecordingTelecom {
   private var allowConnectionWhilePreparing = false
   @Volatile private var scoAudioConnected = false
   private var audioObserverRegistered = false
-  private var diagnosticNumericAddress = false
+  @Volatile private var diagnosticLegacyAlphaAddress = false
+  @Volatile private var diagnosticVoipAudioMode = false
+  @Volatile private var activeCallAddress: String? = null
   @Volatile private var preferredBluetoothName: String? = null
   @Volatile private var preferredBluetoothAddress: String? = null
 
@@ -84,13 +86,52 @@ object BluetoothRecordingTelecom {
     if (Looper.myLooper() == Looper.getMainLooper()) action() else mainHandler.post { action() }
   }
 
-  internal fun configureDebugNumericAddress(context: Context, enabled: Boolean): Boolean {
+  /**
+   * Debug-only comparison switch. The default is always the numeric address.
+   * `enabled = true` keeps the numeric address; `enabled = false` selects the
+   * old alphabetic identifier so the HFP CLCC difference can be compared.
+   */
+  internal fun configureDebugNumericAddress(context: Context, enabled: Boolean): Boolean =
+    configureDebugCallAddress(context, legacyAlpha = !enabled)
+
+  internal fun configureDebugCallAddress(context: Context, legacyAlpha: Boolean): Boolean {
     if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0 ||
       lifecycle.current != null || RecordingRuntime.state.value.status != RecordingStatus.IDLE
     ) return false
-    diagnosticNumericAddress = enabled
-    Log.i(TAG, "debug local voip numeric address=$enabled; no carrier call")
+    diagnosticLegacyAlphaAddress = legacyAlpha
+    Log.i(
+      TAG,
+      "debug call address legacyAlpha=$legacyAlpha " +
+        "address=${BluetoothCallIdentity.address(legacyAlpha)} " +
+        "hfpDialable=${BluetoothCallIdentity.hfpDialable(BluetoothCallIdentity.address(legacyAlpha))}; no carrier call",
+    )
     return true
+  }
+
+  /**
+   * Debug-only comparison switch for the call audio mode. The default keeps the
+   * existing call-audio mode because it is the configuration that has opened
+   * SCO on the test headset; `true` uses the standard self-managed VoIP mode.
+   */
+  internal fun configureDebugVoipAudioMode(context: Context, enabled: Boolean): Boolean {
+    if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0 ||
+      lifecycle.current != null || RecordingRuntime.state.value.status != RecordingStatus.IDLE
+    ) return false
+    diagnosticVoipAudioMode = enabled
+    Log.i(TAG, "debug call audio mode voip=$enabled")
+    return true
+  }
+
+  internal fun voipAudioMode(): Boolean = diagnosticVoipAudioMode
+
+  internal fun activeCallAddress(): String? = activeCallAddress
+
+  internal fun statusDescription(): String {
+    val session = lifecycle.current
+    return "session=${session?.id ?: "none"} attached=${session?.attached ?: false} " +
+      "endpoint=${session?.endpointReady ?: false} sco=$scoAudioConnected ready=${isReady()} " +
+      "address=${activeCallAddress ?: "none"} legacyAlpha=$diagnosticLegacyAlphaAddress " +
+      "voipAudioMode=$diagnosticVoipAudioMode"
   }
 
   internal fun observeBluetoothAudio(context: Context) = onMain {
@@ -135,6 +176,7 @@ object BluetoothRecordingTelecom {
     preferredBluetoothName = preferredProductName
     preferredBluetoothAddress = preferredAddress
     val handle = phoneAccountHandle(appContext)
+    val callAddress = BluetoothCallIdentity.address(diagnosticLegacyAlphaAddress)
     runCatching {
       registerPhoneAccount(telecom, handle)
       val callExtras = Bundle().apply { putLong(EXTRA_SESSION_ID, session.id) }
@@ -143,10 +185,17 @@ object BluetoothRecordingTelecom {
         putInt(TelecomManager.EXTRA_START_CALL_WITH_VIDEO_STATE, VideoProfile.STATE_AUDIO_ONLY)
         putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, callExtras)
       }
-      // This is always our explicit self-managed voip account. A numeric test
-      // handle lets HFP publish a nonempty CLCC address; it never dials a carrier.
-      telecom.placeCall(Uri.fromParts("voip", if (diagnosticNumericAddress) "5550100" else ACCOUNT_ID, null), extras)
-      Log.i(TAG, "requested call session=${session.id} recording=$recordingId requiresSco=$requiresSco")
+      // This is always our explicit self-managed voip account. The numeric
+      // scheme-specific part survives the HFP CLCC dial-character filter, so
+      // the headset sees a nonempty number. It never dials a carrier.
+      activeCallAddress = callAddress
+      telecom.placeCall(Uri.fromParts("voip", callAddress, null), extras)
+      Log.i(
+        TAG,
+        "requested call session=${session.id} recording=$recordingId requiresSco=$requiresSco " +
+          "address=$callAddress hfpDialable=${BluetoothCallIdentity.hfpDialable(callAddress)} " +
+          "legacyAlpha=$diagnosticLegacyAlphaAddress voipAudioMode=$diagnosticVoipAudioMode",
+      )
     }.onFailure { error ->
       Log.w(TAG, "unable to start call session=${session.id}", error)
       endNow("placeCall failed")
@@ -169,6 +218,7 @@ object BluetoothRecordingTelecom {
     lifecycle.clear()
     activeConnection = null
     allowConnectionWhilePreparing = false
+    activeCallAddress = null
     preferredBluetoothName = null
     preferredBluetoothAddress = null
     old?.disconnectFromApp()
@@ -225,6 +275,7 @@ object BluetoothRecordingTelecom {
     if (activeConnection === connection) {
       activeConnection = null
       allowConnectionWhilePreparing = false
+      activeCallAddress = null
       preferredBluetoothName = null
       preferredBluetoothAddress = null
       lifecycle.finish(connection.sessionId)
@@ -243,7 +294,7 @@ object BluetoothRecordingTelecom {
     if (!isCurrent(connection)) return BluetoothGestureEffect.Ignore
     val session = lifecycle.claimEnd(connection.sessionId) ?: return BluetoothGestureEffect.Ignore
     Log.i(TAG, "call control session=${session.id} recording=${session.recordingId} reason=$reason")
-    return BluetoothRecordingWorkflow.handleTelecomEnd(context, session.recordingId)
+    return BluetoothRecordingWorkflow.handleTelecomEnd(context, session.recordingId, source = reason)
   }
 
   internal fun onServiceFocusLost(service: BluetoothRecordingConnectionService) {
@@ -357,29 +408,65 @@ class BluetoothRecordingConnection(
   private val appContext = owner.applicationContext
   internal val recordingId: String? = BluetoothRecordingTelecom.recordingIdFor(sessionId)
   @Volatile private var destroyed = false
+  @Volatile private var activeRequested = false
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private val activateFallback = Runnable { promoteToActive("dialing fallback") }
 
   init {
     connectionProperties = PROPERTY_SELF_MANAGED
-    connectionCapabilities = CAPABILITY_HOLD or CAPABILITY_SUPPORT_HOLD
+    // Hold/answer are not implemented as call features. Advertising HOLD made
+    // the headset route some call-button gestures to a hold callback, which
+    // the old code handled by ending the recording. Keep only the capabilities
+    // that this one-purpose control call actually implements.
+    connectionCapabilities = BluetoothCallControlPolicy.CONNECTION_CAPABILITIES
     // Classic HFP headsets such as soundcore V20i may acknowledge a
-    // self-managed VoIP call without ever opening bidirectional SCO. Using the
-    // standard call audio mode makes BluetoothInCallService publish the active
-    // call to HFP and establish AudioOn, while the call remains self-managed.
-    setAudioModeIsVoip(false)
+    // self-managed VoIP call without ever opening bidirectional SCO. The
+    // existing call-audio mode is kept as the default; the Debug receiver can
+    // switch it to standard VoIP mode for an A/B comparison.
+    setAudioModeIsVoip(BluetoothRecordingTelecom.voipAudioMode())
     setCallerDisplayName("ideavox 录音".localized(appContext), TelecomManager.PRESENTATION_ALLOWED)
   }
 
   fun activate(address: Uri?) {
-    setAddress(address ?: Uri.fromParts("voip", "ideavox", null), TelecomManager.PRESENTATION_ALLOWED)
+    val callAddress = address ?: Uri.fromParts("voip", BluetoothCallIdentity.address(false), null)
+    setAddress(callAddress, TelecomManager.PRESENTATION_ALLOWED)
     videoState = VideoProfile.STATE_AUDIO_ONLY
+    // Publish DIALING first. The HFP stack maps this to an outgoing call-setup
+    // update before the call becomes ACTIVE, so the headset sees a normal
+    // outgoing call rather than an immediate jump from idle to active.
     setDialing()
-    setActive()
-    BluetoothRecordingTelecom.onConnectionActivated(this)
-    // Telecom owns call routing for a self-managed Connection. Asking it for
-    // Bluetooth here is what actually opens HFP/SCO on headsets that reject
-    // the separate voice-recognition command.
+    val dialable = BluetoothCallIdentity.hfpDialable(callAddress.schemeSpecificPart)
+    Log.i(
+      TAG,
+      "call dialing session=$sessionId address=$callAddress hfpDialable=$dialable " +
+        "voipAudioMode=${BluetoothRecordingTelecom.voipAudioMode()}",
+    )
+    BluetoothTouchDiagnostics.record(
+      "TELECOM dialing address=${callAddress.schemeSpecificPart} hfpDialable=$dialable",
+    )
+    // Telecom owns call routing for a self-managed Connection. Requesting the
+    // Bluetooth route while dialing lets the headset open HFP/SCO before the
+    // call is promoted to ACTIVE.
     @Suppress("DEPRECATION")
     setAudioRoute(CallAudioState.ROUTE_BLUETOOTH)
+    mainHandler.removeCallbacks(activateFallback)
+    mainHandler.postDelayed(activateFallback, CALL_ACTIVE_FALLBACK_MS)
+  }
+
+  /**
+   * Promote DIALING to ACTIVE as soon as the Bluetooth route/endpoint is
+   * usable, with a timed fallback for stacks that do not emit a route callback
+   * before the call must become active.
+   */
+  private fun promoteToActive(reason: String) {
+    if (destroyed || activeRequested || !BluetoothRecordingTelecom.isCurrent(this)) return
+    if (state != STATE_DIALING) return
+    activeRequested = true
+    mainHandler.removeCallbacks(activateFallback)
+    setActive()
+    Log.i(TAG, "call active session=$sessionId reason=$reason")
+    BluetoothTouchDiagnostics.record("TELECOM active reason=$reason")
+    BluetoothRecordingTelecom.onConnectionActivated(this)
   }
 
   @Suppress("DEPRECATION")
@@ -389,6 +476,7 @@ class BluetoothRecordingConnection(
     BluetoothTouchDiagnostics.record("TELECOM audio route=${state.route} muted=${state.isMuted} supported=${state.supportedRouteMask}")
     val activeDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) state.activeBluetoothDevice else null
     if (state.route and CallAudioState.ROUTE_BLUETOOTH != 0 && (activeDevice != null || Build.VERSION.SDK_INT < Build.VERSION_CODES.P)) {
+      promoteToActive("bluetooth audio route")
       BluetoothRecordingTelecom.onBluetoothRouteChanged(this, true, activeDevice?.let(::safeBluetoothName) ?: "Bluetooth")
       return
     }
@@ -436,35 +524,49 @@ class BluetoothRecordingConnection(
       Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
         callEndpoint.endpointType == CallEndpoint.TYPE_BLUETOOTH
     ) {
+      promoteToActive("bluetooth call endpoint")
       BluetoothRecordingTelecom.onBluetoothRouteChanged(this, true, callEndpoint.endpointName.toString())
     } else {
       BluetoothRecordingTelecom.onBluetoothRouteChanged(this, false, "endpoint type=${callEndpoint.endpointType}")
     }
   }
 
-  override fun onHold() {
-    if (diagnosticEvent("onHold")) { if (!destroyed) setActive(); return }
-    endRecording("hold", DisconnectCause.LOCAL)
-  }
+  override fun onHold() = handleCallControlEvent(BluetoothCallControlEvent.HOLD, "onHold")
 
-  override fun onUnhold() {
-    if (diagnosticEvent("onUnhold")) { if (!destroyed) setActive(); return }
-    endRecording("unhold", DisconnectCause.LOCAL)
-  }
+  override fun onUnhold() = handleCallControlEvent(BluetoothCallControlEvent.UNHOLD, "onUnhold")
 
-  override fun onAnswer() {
-    if (diagnosticEvent("onAnswer")) { if (!destroyed) setActive(); return }
-    endRecording("answer", DisconnectCause.LOCAL)
-  }
+  override fun onAnswer() = handleCallControlEvent(BluetoothCallControlEvent.ANSWER, "onAnswer")
 
-  override fun onDisconnect() {
-    if (diagnosticEvent("onDisconnect")) { if (!destroyed) setActive(); return }
-    endRecording("disconnect", DisconnectCause.LOCAL)
-  }
+  override fun onDisconnect() = handleCallControlEvent(BluetoothCallControlEvent.DISCONNECT, "onDisconnect")
 
-  override fun onAbort() {
-    if (diagnosticEvent("onAbort")) { if (!destroyed) setActive(); return }
-    endRecording("abort", DisconnectCause.CANCELED)
+  override fun onAbort() = handleCallControlEvent(BluetoothCallControlEvent.ABORT, "onAbort")
+
+  /**
+   * Only a real HFP hang-up/abort ends the recording. Hold, unhold and answer
+   * are not advertised call capabilities; if a headset or the platform still
+   * delivers one, keep the control call alive and never treat it as a stop.
+   */
+  private fun handleCallControlEvent(event: BluetoothCallControlEvent, diagnosticName: String) {
+    if (diagnosticEvent(diagnosticName)) {
+      if (!destroyed) setActive()
+      return
+    }
+    if (!BluetoothCallControlPolicy.endsRecording(event)) {
+      Log.i(TAG, "call control $diagnosticName ignored; hold/answer are not supported")
+      BluetoothTouchDiagnostics.record("TELECOM $diagnosticName ignored (not a recording end)")
+      // Defensively return to ACTIVE if the platform nevertheless applied a
+      // hold; the recording and the headset's call state must stay aligned.
+      if (!destroyed && BluetoothRecordingTelecom.isCurrent(this) && state == STATE_HOLDING) setActive()
+      return
+    }
+    Log.i(
+      TAG,
+      "HFP $diagnosticName session=$sessionId address=${BluetoothRecordingTelecom.activeCallAddress()} " +
+        "destroyed=$destroyed",
+    )
+    BluetoothTouchDiagnostics.record("TELECOM $diagnosticName -> end recording")
+    val cause = if (event == BluetoothCallControlEvent.ABORT) DisconnectCause.CANCELED else DisconnectCause.LOCAL
+    endRecording(diagnosticName, cause)
   }
 
   private fun endRecording(reason: String, cause: Int) {
@@ -508,6 +610,7 @@ class BluetoothRecordingConnection(
   private fun disconnect(cause: Int) {
     if (destroyed) return
     destroyed = true
+    mainHandler.removeCallbacks(activateFallback)
     try {
       setDisconnected(DisconnectCause(cause))
       destroy()
@@ -518,6 +621,7 @@ class BluetoothRecordingConnection(
 
   private companion object {
     const val TAG = "IdeavoxBtConnection"
+    const val CALL_ACTIVE_FALLBACK_MS = 400L
   }
 }
 

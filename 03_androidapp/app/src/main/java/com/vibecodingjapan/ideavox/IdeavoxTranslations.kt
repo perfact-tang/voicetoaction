@@ -139,7 +139,9 @@ internal object IdeavoxTranslations {
       "正在准备录音" to t("録音を準備中", "Preparing to record", "녹음 준비 중"),
       "开启录音" to t("録音開始", "Start recording", "녹음 시작"),
       "录音中调高通话音量结束" to t("通話音量を上げて録音終了", "Stop recording on call volume up", "통화 음량을 높여 녹음 종료"),
+      "录音中调低通话音量结束" to t("通話音量を下げて録音終了", "Stop recording on call volume down", "통화 음량을 낮춰 녹음 종료"),
       "眼镜左侧前滑增大音量：结束并倒计时。手机通话音量键也可能触发。满音量时自动预留一档；仅蓝牙麦克风录音时生效。" to t("眼鏡の左側を前にスワイプして音量を上げると、録音を終了してカウントダウンします。スマートフォンの通話音量キーでも動作する場合があります。最大音量の場合は自動で1段下げます。Bluetoothマイクでの録音時のみ有効です。", "Swipe forward on the left temple to raise the volume, end recording and start the countdown. Phone call-volume keys may also trigger it. At maximum volume, one step is reserved automatically. Applies only to Bluetooth microphone recording.", "안경 왼쪽을 앞으로 밀어 음량을 높이면 녹음을 종료하고 카운트다운합니다. 휴대폰 통화 음량 키로도 작동할 수 있습니다. 최대 음량에서는 자동으로 한 단계를 확보합니다. Bluetooth 마이크 녹음 중에만 적용됩니다."),
+      "眼镜左侧后滑降低音量：结束并倒计时。录音开始后前 10 秒为防误触保护期，之后才响应。手机通话音量键也可能触发。最低音量时自动预留一档；仅蓝牙麦克风录音时生效。" to t("眼鏡の左側を後ろにスワイプして音量を下げると、録音を終了してカウントダウンします。録音開始後10秒間は誤操作防止のため無効です。スマートフォンの通話音量キーでも動作する場合があります。最小音量の場合は自動で1段上げます。Bluetoothマイクでの録音時のみ有効です。", "Swipe backward on the left temple to lower the volume, end recording and start the countdown. The first ten seconds after recording starts are a protection window. Phone call-volume keys may also trigger it. At minimum volume, one step is reserved automatically. Applies only to Bluetooth microphone recording.", "안경 왼쪽을 뒤로 밀어 음량을 낮추면 녹음을 종료하고 카운트다운합니다. 녹음 시작 후 10초 동안은 오작동 방지를 위해 비활성화됩니다. 휴대폰 통화 음량 키로도 작동할 수 있습니다. 최소 음량에서는 자동으로 한 단계를 확보합니다. Bluetooth 마이크 녹음 중에만 적용됩니다."),
       "录音已保存，蓝牙控制尚未恢复，请在手机上传。" to t("録音を保存しました。Bluetooth操作が復帰していないため、スマートフォンからアップロードしてください。", "Recording saved. Bluetooth controls have not recovered; please upload from your phone.", "녹음이 저장되었습니다. Bluetooth 제어가 복구되지 않았으므로 휴대폰에서 업로드해 주세요."),
       "录音已开启" to t("録音を開始しました", "Recording started", "녹음을 시작했습니다"),
       "录音已暂停" to t("録音を一時停止しました", "Recording paused", "녹음이 일시정지되었습니다"),
@@ -184,6 +186,19 @@ internal object IdeavoxTranslations {
       "录音已结束，10秒内再按一下，触发自动上传。十" to
         t("録音を終了しました。10秒以内にもう一度押すと自動アップロードします。10", "Recording ended. Press again within ten seconds to start automatic upload. Ten", "녹음이 끝났습니다. 10초 안에 다시 누르면 자동 업로드합니다. 십"),
       "已开启上传" to t("アップロードを開始しました", "Upload started", "업로드를 시작했습니다"),
+      "准备" to t("準備", "Ready", "준비"),
+      "开始录音" to t("録音開始", "Start recording", "녹음 시작"),
+      "录音已结束，5秒内再前滑一次上传" to
+        t("録音を終了しました。5秒以内にもう一度前へスワイプするとアップロードします", "Recording ended. Swipe forward again within five seconds to upload", "녹음이 끝났습니다. 5초 안에 다시 앞으로 밀면 업로드합니다"),
+      "录音已结束，请再前滑一次上传" to
+        t("録音を終了しました。もう一度前へスワイプするとアップロードします", "Recording ended. Swipe forward again to upload", "녹음이 끝났습니다. 다시 앞으로 밀면 업로드합니다"),
+      "现在请再前滑一次上传" to
+        t("今、もう一度前へスワイプするとアップロードします", "Now swipe forward again to upload", "지금 다시 앞으로 밀면 업로드합니다"),
+      "现在可以后滑结束" to
+        t("今、後ろへスワイプすると録音を終了できます", "You can now swipe backward to stop recording", "지금 뒤로 밀면 녹음을 종료할 수 있습니다"),
+      "录音已结束，5秒内再后滑一次上传" to
+        t("録音を終了しました。5秒以内にもう一度後ろへスワイプするとアップロードします", "Recording ended. Swipe backward again within five seconds to upload", "녹음이 끝났습니다. 5초 안에 다시 뒤로 밀면 업로드합니다"),
+      "已取消上传" to t("アップロードをキャンセルしました", "Upload cancelled", "업로드를 취소했습니다"),
 
       // Upload flow
       "上传" to t("アップロード", "Upload", "업로드"),
@@ -210,6 +225,7 @@ internal object IdeavoxTranslations {
       "正在取消" to t("キャンセル中", "Cancelling", "취소 중"),
       "已取消" to t("キャンセルしました", "Cancelled", "취소됨"),
       "自动上传成功" to t("自動アップロードが完了しました", "Automatic upload successful", "자동 업로드가 완료되었습니다"),
+      "自动上传已完成" to t("自動アップロードが完了しました", "Automatic upload completed", "자동 업로드가 완료되었습니다"),
       "上传成功" to t("アップロード完了", "Upload successful", "업로드 성공"),
       "上传失败" to t("アップロード失敗", "Upload failed", "업로드 실패"),
       "处理失败" to t("処理失敗", "Processing failed", "처리 실패"),

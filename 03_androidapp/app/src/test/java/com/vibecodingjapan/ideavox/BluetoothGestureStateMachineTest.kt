@@ -10,7 +10,7 @@ class BluetoothGestureStateMachineTest {
       BluetoothGesturePhase.StartingRecording("old", 12000), RecordingStatus.IDLE, null, "new", 12001,
     )
     assertEquals(BluetoothGestureEffect.ArmRecordingStart, next.effect)
-    assertEquals(BluetoothGesturePhase.AwaitingStartConfirmation(17001), next.phase)
+    assertEquals(BluetoothGesturePhase.AwaitingStartConfirmation(17001 + BluetoothGestureStateMachine.CONFIRMATION_GRACE_MS), next.phase)
     assertEquals(next.phase, BluetoothGestureStateMachine.onRecordingStarted(next.phase, "old").phase)
   }
 
@@ -21,7 +21,10 @@ class BluetoothGestureStateMachineTest {
     assertEquals(BluetoothGestureEffect.Ignore, duplicate.effect)
     assertEquals(BluetoothGesturePhase.PreparingUploadConfirmation("r1"), duplicate.phase)
     val saved = BluetoothGestureStateMachine.onRecordingFinalized(duplicate.phase, "r1", 1000)
-    assertEquals(BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 11000), saved.phase)
+    assertEquals(
+      BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 11000 + BluetoothGestureStateMachine.CONFIRMATION_GRACE_MS),
+      saved.phase,
+    )
     val late = BluetoothGestureStateMachine.onTelecomEnd(saved.phase, RecordingStatus.IDLE, null, "r1")
     assertEquals(saved.phase, late.phase)
     assertEquals(BluetoothGestureEffect.Ignore, late.effect)
@@ -95,6 +98,27 @@ class BluetoothGestureStateMachineTest {
         now = 5_999L,
       )
     assertEquals(BluetoothGestureEffect.StartRecording("r1"), second.effect)
+  }
+
+  @Test
+  fun startConfirmationAcceptsALateTapWithinTheGracePeriod() {
+    val first =
+      BluetoothGestureStateMachine.onTrigger(
+        phase = BluetoothGesturePhase.Idle,
+        recordingStatus = RecordingStatus.IDLE,
+        activeRecordingId = null,
+        nextRecordingId = "r1",
+        now = 1_000L,
+      )
+    val late =
+      BluetoothGestureStateMachine.onTrigger(
+        phase = first.phase,
+        recordingStatus = RecordingStatus.IDLE,
+        activeRecordingId = null,
+        nextRecordingId = "r1",
+        now = 7_500L, // 5s window + 1.5s grace
+      )
+    assertEquals(BluetoothGestureEffect.StartRecording("r1"), late.effect)
   }
 
   @Test
@@ -214,7 +238,10 @@ class BluetoothGestureStateMachineTest {
 
   @Test fun uploadWindowStartsAtFinalizationAndStaleStartDoesNotEraseIt() {
     val next = BluetoothGestureStateMachine.onRecordingFinalized(BluetoothGesturePhase.PreparingUploadConfirmation("r1"), "r1", 5000)
-    assertEquals(BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 15000), next.phase)
+    assertEquals(
+      BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 15000 + BluetoothGestureStateMachine.CONFIRMATION_GRACE_MS),
+      next.phase,
+    )
     assertEquals(next.phase, BluetoothGestureStateMachine.onRecordingStarted(next.phase, "old").phase)
   }
 

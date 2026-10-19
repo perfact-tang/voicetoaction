@@ -87,6 +87,7 @@ class UploadProcessingService : Service() {
                 UploadRuntime.fail(message)
                 showUploadFailureNotification(message)
               }
+              if (applyBluetoothDefaults) BluetoothRecordingWorkflow.releaseUploadControl(applicationContext)
             }
         } finally {
           if (!keepRuntimeState) UploadRuntime.finish()

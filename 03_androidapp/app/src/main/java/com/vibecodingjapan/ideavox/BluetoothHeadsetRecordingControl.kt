@@ -701,8 +701,9 @@ class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.O
       text: String,
       useVoiceCommunication: Boolean,
       speechRate: Float,
+      flush: Boolean = true,
     ) {
-      onMain { prompt(context).speak(text, useVoiceCommunication, speechRate) }
+      onMain { prompt(context).speak(text, useVoiceCommunication, speechRate, flush) }
     }
 
     fun stop() {

@@ -8,11 +8,14 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -140,6 +143,10 @@ import java.util.Locale
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+  private companion object {
+    const val VOICE_TAG = "IdeavoxBtVoice"
+  }
+
   private val _sharedContentEvent = MutableStateFlow<SharedContentEvent?>(null)
   private val sharedContentEvent: StateFlow<SharedContentEvent?> = _sharedContentEvent.asStateFlow()
   private val _resumeSignal = MutableStateFlow(0L)
@@ -161,13 +168,57 @@ class MainActivity : ComponentActivity() {
         )
       }
     }
+    if (consumeVoiceCommand(intent)) handleVoiceCommand()
     if (savedInstanceState == null) handleSharedContent(intent)
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
+    if (consumeVoiceCommand(intent)) handleVoiceCommand()
     handleSharedContent(intent)
+  }
+
+  /**
+   * Call-only Eyewear 2 control. Configuring the glasses' double-tap to wake
+   * the voice assistant makes them send HFP AT+BVRA; Android turns that into
+   * ACTION_VOICE_COMMAND. MainActivity is the selected handler, so the app
+   * opens and the same four-step gesture workflow advances.
+   */
+  private fun consumeVoiceCommand(intent: Intent?): Boolean {
+    if (intent?.action != Intent.ACTION_VOICE_COMMAND) return false
+    // Consume the action so an Activity recreation cannot replay the gesture.
+    intent.action = null
+    return true
+  }
+
+  private fun handleVoiceCommand() {
+    if (!appStore.snapshot.value.bluetoothHeadsetControlMonitoringEnabled) {
+      Log.i(VOICE_TAG, "voice command ignored: headset monitoring disabled")
+      return
+    }
+    // Avoid READ_PHONE_STATE. A carrier/SIM call puts AudioManager in
+    // MODE_IN_CALL; our own self-managed control call also uses that mode but
+    // has an active Telecom connection, so it is excluded here.
+    val audioManager = getSystemService(AudioManager::class.java)
+    if (
+      RecordingRuntime.state.value.status == RecordingStatus.IDLE &&
+        !BluetoothRecordingTelecom.hasActiveConnection() &&
+        audioManager?.mode == AudioManager.MODE_IN_CALL
+    ) {
+      Log.i(VOICE_TAG, "voice command ignored: another phone call appears to be active")
+      return
+    }
+    val started = runCatching {
+      BluetoothRecordingWorkflow.startVoiceRecording(this)
+    }.onFailure { Log.w(VOICE_TAG, "voice command workflow failed", it) }
+      .getOrDefault(false)
+    Log.i(VOICE_TAG, "voice single-tap start accepted=$started")
+    Toast.makeText(
+      this,
+      if (started) "准备" else "当前不能开始录音",
+      Toast.LENGTH_SHORT,
+    ).show()
   }
 
   override fun onResume() {
@@ -1048,10 +1099,10 @@ private fun SettingsScreen(
             checked = bluetoothVolumeStopEnabled,
             onCheckedChange = { appStore.saveBluetoothVolumeStopEnabled(it) },
           )
-          LocalizedText("录音中调高通话音量结束", color = Neon.Text, fontWeight = FontWeight.Bold)
+          LocalizedText("录音中调低通话音量结束", color = Neon.Text, fontWeight = FontWeight.Bold)
         }
         LocalizedText(
-          "眼镜左侧前滑增大音量：结束并倒计时。手机通话音量键也可能触发。满音量时自动预留一档；仅蓝牙麦克风录音时生效。",
+          "眼镜左侧后滑降低音量：结束并倒计时。录音开始后前 10 秒为防误触保护期，之后才响应。手机通话音量键也可能触发。最低音量时自动预留一档；仅蓝牙麦克风录音时生效。",
           color = Neon.Muted,
           style = MaterialTheme.typography.bodySmall,
         )

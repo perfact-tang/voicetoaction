@@ -51,6 +51,16 @@
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/x-vnd.google-docs-document-slice-clip+wrapped" />
             </intent-filter>
+            <!--
+              Call-only Eyewear control: when the glasses are configured to wake
+              the voice assistant on double-tap, HFP AT+BVRA starts
+              ACTION_VOICE_COMMAND. MainActivity consumes it and advances the
+              same four-step gesture workflow without A2DP/AVRCP.
+            -->
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
         <service
             android:name=".RecordingService"

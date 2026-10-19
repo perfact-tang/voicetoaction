@@ -11,6 +11,14 @@ class LocalizationTest {
     assertEquals("자동 업로드가 완료되었습니다", localizeText("自动上传成功", AppLanguage.KO))
   }
 
+  @Test fun automaticUploadCompletedPromptMatchesTheRequestedWording() {
+    assertEquals("自动上传已完成", localizeText("自动上传已完成", AppLanguage.ZH))
+    assertEquals("自動アップロードが完了しました", localizeText("自动上传已完成", AppLanguage.JA))
+    assertEquals("Automatic upload completed", localizeText("自动上传已完成", AppLanguage.EN))
+    assertEquals("자동 업로드가 완료되었습니다", localizeText("自动上传已完成", AppLanguage.KO))
+    assertEquals("Recording ended", localizeText("录音已结束", AppLanguage.EN))
+  }
+
   @Test
   fun translatesCoreNavigationIntoEverySupportedLanguage() {
     assertEquals("録音", localizeText("录音", AppLanguage.JA))

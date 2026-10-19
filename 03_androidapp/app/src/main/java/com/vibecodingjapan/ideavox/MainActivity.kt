@@ -175,6 +175,7 @@ class MainActivity : ComponentActivity() {
     _resumeSignal.value += 1L
   }
 
+  @android.annotation.SuppressLint("RestrictedApi") // Public Activity Window.Callback override; intercept hardware media keys.
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     if (BluetoothHeadsetRecordingActions.handleMediaKeyEvent(this, event)) {
       return true
@@ -355,6 +356,7 @@ fun LuYinApp(
               selectedUploadOutputFormat = snapshot.selectedUploadOutputFormat,
               bluetoothRecordingControlMode = snapshot.bluetoothRecordingControlMode,
               bluetoothHeadsetControlMonitoringEnabled = snapshot.bluetoothHeadsetControlMonitoringEnabled,
+              bluetoothVolumeStopEnabled = snapshot.bluetoothVolumeStopEnabled,
               bluetoothDefaultAICalling = snapshot.bluetoothDefaultAICalling,
               bluetoothDefaultUploadLanguage = snapshot.bluetoothDefaultUploadLanguage,
               bluetoothDefaultUploadSpeed = snapshot.bluetoothDefaultUploadSpeed,
@@ -814,6 +816,7 @@ private fun SettingsScreen(
   selectedUploadOutputFormat: UploadOutputFormat,
   bluetoothRecordingControlMode: BluetoothRecordingControlMode,
   bluetoothHeadsetControlMonitoringEnabled: Boolean,
+  bluetoothVolumeStopEnabled: Boolean,
   bluetoothDefaultAICalling: AICallingItem?,
   bluetoothDefaultUploadLanguage: ReaderLanguage,
   bluetoothDefaultUploadSpeed: Float,
@@ -1040,6 +1043,18 @@ private fun SettingsScreen(
           color = Neon.Muted,
           style = MaterialTheme.typography.bodySmall,
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Checkbox(
+            checked = bluetoothVolumeStopEnabled,
+            onCheckedChange = { appStore.saveBluetoothVolumeStopEnabled(it) },
+          )
+          LocalizedText("录音中调高通话音量结束", color = Neon.Text, fontWeight = FontWeight.Bold)
+        }
+        LocalizedText(
+          "眼镜左侧前滑增大音量：结束并倒计时。手机通话音量键也可能触发。满音量时自动预留一档；仅蓝牙麦克风录音时生效。",
+          color = Neon.Muted,
+          style = MaterialTheme.typography.bodySmall,
+        )
         LocalizedText("蓝牙自动上传默认值", color = Neon.Text, fontWeight = FontWeight.Bold)
         Box {
           GlassButton(
@@ -1181,6 +1196,7 @@ private fun RecorderScreen(
   onAuthChanged: (AuthUiState) -> Unit,
 ) {
   val context = LocalContext.current
+  val settings by appStore.snapshot.collectAsState()
   val scope = rememberCoroutineScope()
   val selected = remember { mutableStateListOf<String>() }
   var selectionMode by remember { mutableStateOf(false) }
@@ -1505,7 +1521,7 @@ private fun RecorderScreen(
     UploadDialog(
       selectedIds = selected.toList(),
       recordings = recordings,
-      outputFormat = appStore.snapshot.value.selectedUploadOutputFormat,
+      outputFormat = settings.selectedUploadOutputFormat,
       mode = selectedUploadMode,
       onDismiss = {
         uploadDialog = false

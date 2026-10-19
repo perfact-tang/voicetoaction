@@ -4,6 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class LocalizationTest {
+  @Test fun automaticUploadCompletionHasSpokenTextInEveryAppLanguage() {
+    assertEquals("自动上传成功", localizeText("自动上传成功", AppLanguage.ZH))
+    assertEquals("自動アップロードが完了しました", localizeText("自动上传成功", AppLanguage.JA))
+    assertEquals("Automatic upload successful", localizeText("自动上传成功", AppLanguage.EN))
+    assertEquals("자동 업로드가 완료되었습니다", localizeText("自动上传成功", AppLanguage.KO))
+  }
+
   @Test
   fun translatesCoreNavigationIntoEverySupportedLanguage() {
     assertEquals("録音", localizeText("录音", AppLanguage.JA))
@@ -25,15 +32,11 @@ class LocalizationTest {
 
   @Test
   fun translatesVoicePromptsAndCountdownNumbers() {
-    val english =
-      localizeText(
-        "已监测到操作，3秒内再按一下，开启录音。三，二，一",
-        AppLanguage.EN,
-      )
-    assertEquals(
-      "Action detected. Press again within three seconds to start recording. Three, two, one",
-      english,
-    )
+    assertEquals("Ready", localizeText("我在", AppLanguage.EN))
+    assertEquals("Stop", localizeText("结束", AppLanguage.EN))
+    assertEquals("我在", localizeText("我在", AppLanguage.ZH))
+    assertEquals("开启录音", localizeText("开启录音", AppLanguage.ZH))
+    assertEquals("Start recording", localizeText("开启录音", AppLanguage.EN))
     assertEquals("nine", localizeText("九", AppLanguage.EN))
     assertEquals("구", localizeText("九", AppLanguage.KO))
   }

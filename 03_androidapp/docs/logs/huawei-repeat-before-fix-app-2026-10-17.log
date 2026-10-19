@@ -1,0 +1,70 @@
+--------- beginning of main
+10-17 23:50:21.956 22515 22515 D IdeavoxBtTelecom: telecom bluetooth recording control is active; waiting for bluetooth call endpoint
+10-17 23:50:21.997 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:21.999 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:22.018 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:22.023 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:22.077 22515 13292 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-17 23:50:22.086 22515 13292 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-17 23:50:22.088 22515 13292 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-17 23:50:22.088 22515 13292 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-17 23:50:22.089 22515 22515 D IdeavoxBtKeys: suspending media keep-alive before bluetooth communication route
+10-17 23:50:22.175 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=11 previous=10 recording=IDLE
+10-17 23:50:22.988 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=12 previous=11 recording=IDLE
+10-17 23:50:23.022 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:23.031 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:50:23.123 22515 22515 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-17 23:50:23.144 22515 13292 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=8735, type=7
+10-17 23:50:23.167 22515 13292 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=1090
+10-17 23:50:39.090 22515 22515 I IdeavoxBtKeys: volume response stream=6 value=14 previous=13 recording=RECORDING
+10-17 23:50:39.090 22515 22515 I IdeavoxBtKeys: volume response stream=0 value=14 previous=13 recording=RECORDING
+10-17 23:51:13.764 22515 22515 I IdeavoxBtKeys: volume response stream=6 value=15 previous=14 recording=RECORDING
+10-17 23:51:13.789 22515 22515 I IdeavoxBtKeys: volume response stream=0 value=15 previous=14 recording=RECORDING
+10-17 23:51:33.379 22515 13292 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-17 23:51:33.490 22515 13292 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=110
+10-17 23:51:33.571 22515 22515 D IdeavoxBtKeys: rearming bluetooth media button session
+10-17 23:51:33.627 22515 22515 D IdeavoxBtKeys: audio focus request result: 0
+10-17 23:51:33.773 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=10 previous=12 recording=IDLE
+10-17 23:51:33.781 22515 22515 D IdeavoxBtKeys: audio focus request result: 1
+10-17 23:51:33.844 22515 13484 I IdeavoxBtKeys: silent media route changed: id=8733, type=7, name=HUAWEI Eyewear 2
+10-17 23:51:35.589 22515 13484 I IdeavoxBtKeys: silent media route changed: id=8980, type=8, name=HUAWEI Eyewear 2
+10-17 23:52:41.576 22515 22515 I IdeavoxBtKeys: key code=127 action=0 repeat=0 device=-1 source=0 eventAt=0 receivedAt=1036424870 status=IDLE supported=true
+10-17 23:52:41.576 22515 22515 D IdeavoxBtKeys: captured headset trigger operation=PLAY_PAUSE keyCode=127 status=IDLE
+10-17 23:52:41.576 22515 22515 I IdeavoxBtWorkflow: trigger at=1806080876 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1806085876) effect=ArmRecordingStart
+10-17 23:52:41.646 22515 22515 I IdeavoxBtKeys: key code=127 action=1 repeat=0 device=-1 source=0 eventAt=0 receivedAt=1036424940 status=IDLE supported=true
+10-17 23:52:41.647 22515  6361 I IdeavoxBtKeys: voice prompt started id=ideavox-headset-25
+10-17 23:52:42.251 22515 13238 I IdeavoxBtKeys: voice prompt started id=ideavox-headset-26
+10-17 23:52:43.034 22515 13238 I IdeavoxBtKeys: voice prompt completed id=ideavox-headset-26
+10-17 23:52:43.152 22515 13238 I IdeavoxBtKeys: voice prompt started id=ideavox-headset-27
+10-17 23:52:43.494 22515 22515 I IdeavoxBtKeys: key code=127 action=0 repeat=0 device=-1 source=0 eventAt=0 receivedAt=1036426788 status=IDLE supported=true
+10-17 23:52:43.494 22515 22515 D IdeavoxBtKeys: captured headset trigger operation=PLAY_PAUSE keyCode=127 status=IDLE
+10-17 23:52:43.495 22515 22515 I IdeavoxBtWorkflow: trigger at=1806082794 telecom=false status=IDLE phase=StartingRecording(recordingId=b60522fd-66b6-400e-b879-3ca261837094, expiresAt=1806094794, stopRequested=false) effect=StartRecording(recordingId=b60522fd-66b6-400e-b879-3ca261837094)
+10-17 23:52:43.505 22515 22515 D IdeavoxBtKeys: suspending media keep-alive before bluetooth communication route
+10-17 23:52:43.509 22515 13484 I IdeavoxBtKeys: silent media route changed: id=none, type=none, name=none
+10-17 23:52:43.517 22515 22515 I IdeavoxBtKeys: key code=127 action=1 repeat=0 device=-1 source=0 eventAt=0 receivedAt=1036426811 status=IDLE supported=true
+10-17 23:52:43.528 22515  6398 D IdeavoxBtTelecom: requested self-managed bluetooth recording call
+10-17 23:52:43.598 22515 22515 D IdeavoxBtTelecom: telecom bluetooth recording control is active; waiting for bluetooth call endpoint
+10-17 23:52:43.657 22515 22515 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-17 23:52:43.661 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:52:43.678 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:52:43.679 22515 22515 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-17 23:52:44.144 22515 14192 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-17 23:52:44.179 22515 14192 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-17 23:52:44.196 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:52:44.205 22515 22515 I IdeavoxBtTelecom: telecom bluetooth call endpoint is active: HUAWEI Eyewear 2
+10-17 23:52:44.257 22515 22515 D IdeavoxBtKeys: suspending media keep-alive before bluetooth communication route
+10-17 23:52:44.260 22515 14192 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-17 23:52:44.260 22515 14192 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-17 23:52:44.680 22515 22515 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-17 23:52:44.685 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=11 previous=10 recording=IDLE
+10-17 23:52:44.689 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=12 previous=11 recording=IDLE
+10-17 23:52:44.843 22515 14192 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=8735, type=7
+10-17 23:52:44.876 22515 14192 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=731
+10-17 23:53:02.179 22515 14192 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-17 23:53:02.293 22515 14192 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=113
+10-17 23:53:02.358 22515 22515 D IdeavoxBtKeys: rearming bluetooth media button session
+10-17 23:53:02.549 22515 22515 D IdeavoxBtKeys: audio focus request result: 0
+10-17 23:53:02.601 22515 22515 D IdeavoxBtKeys: audio focus request result: 1
+10-17 23:53:02.659 22515 14412 I IdeavoxBtKeys: silent media route changed: id=8733, type=7, name=HUAWEI Eyewear 2
+10-17 23:53:02.687 22515 22515 I IdeavoxBtKeys: headset state action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=10 previous=12 recording=IDLE
+10-17 23:53:04.460 22515 14412 I IdeavoxBtKeys: silent media route changed: id=8980, type=8, name=HUAWEI Eyewear 2

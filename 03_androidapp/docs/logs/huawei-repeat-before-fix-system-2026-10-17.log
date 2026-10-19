@@ -1,0 +1,25 @@
+10-17 23:51:33.539  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-17 23:51:33.547  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-17 23:51:33.547  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 7
+10-17 23:51:33.552  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 6
+10-17 23:51:33.687  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=processAudioEvent: audio disconnected by remote
+10-17 23:52:41.567  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=true
+10-17 23:52:41.568  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:52:41.592  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=false
+10-17 23:52:41.593  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:52:43.491  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=true
+10-17 23:52:43.491  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:52:43.513  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=false
+10-17 23:52:43.514  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:52:43.558  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-17 23:52:43.561  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 6
+10-17 23:52:43.574  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-17 23:52:43.609  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-17 23:52:43.633  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 2
+10-17 23:52:43.633  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 6
+10-17 23:53:02.360  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-17 23:53:02.382  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-17 23:53:02.394  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 7
+10-17 23:53:02.396  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=CallState.mCallState = 6
+10-17 23:53:02.518  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=DISCONNECT_AUDIO, device=XX:XX:XX:XX:B2:6A
+10-17 23:53:02.541  5876 28697 D HeadsetStateMachine: AudioDisconnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=processAudioEvent: audio disconnected

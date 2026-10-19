@@ -8,7 +8,9 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.bluetooth.BluetoothHeadset
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -20,7 +22,13 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.KeyEvent
 import androidx.compose.runtime.Composable
@@ -68,9 +76,54 @@ class BluetoothMediaButtonService : Service() {
   private lateinit var mediaButtonReceiver: ComponentName
   private var mediaKeyFocus: BluetoothMediaKeyFocus? = null
   private val silentMediaKeepAlive = SilentMediaKeepAlive()
+  private var communicationSuspended = false
+  private val headsetDiagnostics = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+      when (intent.action) {
+        BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED,
+        BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED,
+        -> {
+          val state = intent.getIntExtra(BluetoothHeadset.EXTRA_STATE, -1)
+          val previous = intent.getIntExtra(BluetoothHeadset.EXTRA_PREVIOUS_STATE, -1)
+          Log.i(TAG, "headset state action=${intent.action} state=$state previous=$previous recording=${RecordingRuntime.state.value.status}")
+          BluetoothTouchDiagnostics.record("HFP action=${intent.action} state=$state previous=$previous")
+        }
+        VOLUME_CHANGED_ACTION -> {
+          val stream = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
+          val value = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
+          val previous = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
+          Log.i(TAG, "volume response stream=$stream value=$value previous=$previous recording=${RecordingRuntime.state.value.status}")
+          BluetoothTouchDiagnostics.record("VOLUME stream=$stream value=$value previous=$previous")
+        }
+      }
+    }
+  }
+  private val audioDevices = object : AudioDeviceCallback() {
+    override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) = logDevices("added", devices)
+    override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) = logDevices("removed", devices)
+  }
+  private fun logDevices(action: String, devices: Array<out AudioDeviceInfo>) {
+    Log.i(TAG, "audio devices $action: ${devices.joinToString { "${it.id}/${it.type}/${it.productName}" }} status=${RecordingRuntime.state.value.status}")
+    BluetoothTouchDiagnostics.record("DEVICES $action ${devices.joinToString { "${it.id}/${it.type}/${it.productName}" }}")
+  }
 
   override fun onCreate() {
     super.onCreate()
+    BluetoothRecordingTelecom.observeBluetoothAudio(this)
+    ContextCompat.registerReceiver(
+      this,
+      headsetDiagnostics,
+      IntentFilter().apply {
+        addAction(BluetoothHeadset.ACTION_AUDIO_STATE_CHANGED)
+        addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
+        // Optional platform broadcast: diagnostics only. Volume gestures must
+        // not be confused with explicit recording/upload confirmation presses.
+        addAction(VOLUME_CHANGED_ACTION)
+      },
+      ContextCompat.RECEIVER_EXPORTED,
+    )
+    (getSystemService(AUDIO_SERVICE) as AudioManager).registerAudioDeviceCallback(audioDevices, Handler(mainLooper))
+    MandarinVoicePrompt.isReady(this) // Warm TTS before the first time-critical trigger.
     mediaButtonReceiver = ComponentName(this, BluetoothMediaButtonReceiver::class.java)
     mediaSession = MediaSession(this, "ideavox-bluetooth-media-session")
     mediaKeyFocus = BluetoothMediaKeyFocus(this)
@@ -98,25 +151,43 @@ class BluetoothMediaButtonService : Service() {
     mediaSession.setCallback(
       object : MediaSession.Callback() {
         override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onMediaButtonEvent")
           @Suppress("DEPRECATION")
           val event = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT) as? KeyEvent ?: return false
           return BluetoothHeadsetRecordingActions.handleMediaKeyEvent(this@BluetoothMediaButtonService, event)
         }
 
         override fun onSkipToNext() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onSkipToNext")
           BluetoothHeadsetRecordingActions.handleNext(this@BluetoothMediaButtonService)
         }
 
         override fun onFastForward() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onFastForward")
           BluetoothHeadsetRecordingActions.handleNext(this@BluetoothMediaButtonService)
         }
 
         override fun onPlay() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onPlay")
           BluetoothHeadsetRecordingActions.handlePlayPause(this@BluetoothMediaButtonService)
         }
 
         override fun onPause() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onPause")
           BluetoothHeadsetRecordingActions.handlePlayPause(this@BluetoothMediaButtonService)
+        }
+
+        override fun onStop() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onStop")
+          BluetoothHeadsetRecordingActions.handlePlayPause(this@BluetoothMediaButtonService)
+        }
+        override fun onSkipToPrevious() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onSkipToPrevious")
+          BluetoothHeadsetRecordingActions.handleNext(this@BluetoothMediaButtonService)
+        }
+        override fun onRewind() {
+          BluetoothTouchDiagnostics.record("CALLBACK MediaSession.onRewind")
+          BluetoothHeadsetRecordingActions.handleNext(this@BluetoothMediaButtonService)
         }
 
         override fun onPlayFromMediaId(mediaId: String?, extras: android.os.Bundle?) {
@@ -124,10 +195,8 @@ class BluetoothMediaButtonService : Service() {
         }
       }
     )
-    mediaSession.setPlaybackState(mediaButtonPlaybackState())
-    mediaSession.isActive = true
-    mediaKeyFocus?.request()
-    silentMediaKeepAlive.start()
+    instance = this
+    refreshMediaButtonSession()
     Log.d(TAG, "Bluetooth media button service created and session activated")
   }
 
@@ -164,6 +233,9 @@ class BluetoothMediaButtonService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onDestroy() {
+    if (instance === this) instance = null
+    unregisterReceiver(headsetDiagnostics)
+    (getSystemService(AUDIO_SERVICE) as AudioManager).unregisterAudioDeviceCallback(audioDevices)
     silentMediaKeepAlive.stop()
     mediaKeyFocus?.abandon()
     mediaKeyFocus = null
@@ -215,27 +287,42 @@ class BluetoothMediaButtonService : Service() {
   }
 
   private fun refreshMediaButtonSession() {
+    val ownsMedia = !communicationSuspended && !BluetoothRecordingTelecom.hasActiveConnection()
     mediaSession.setMetadata(mediaButtonMetadata(this))
-    mediaSession.setPlaybackState(mediaButtonPlaybackState())
-    mediaSession.isActive = true
-    mediaKeyFocus?.request()
-    silentMediaKeepAlive.start()
+    mediaSession.setPlaybackState(mediaButtonPlaybackState(ownsMedia))
+    mediaSession.isActive = ownsMedia
+    Log.i(TAG, "media ownership active=$ownsMedia suspended=$communicationSuspended call=${BluetoothRecordingTelecom.hasActiveConnection()} recording=${RecordingRuntime.state.value.status}")
+    if (ownsMedia) {
+      mediaKeyFocus?.request()
+      silentMediaKeepAlive.start()
+    } else {
+      silentMediaKeepAlive.stop()
+      mediaKeyFocus?.abandon()
+    }
   }
 
   private fun rearmMediaButtonSession() {
     Log.d(TAG, "rearming bluetooth media button session")
-    silentMediaKeepAlive.restart()
+    if (!RecordingRuntime.activeInputIsBluetooth && !BluetoothRecordingTelecom.hasActiveConnection() && !BluetoothTouchDiagnostics.ownsCommunicationRoute) {
+      communicationSuspended = false
+    }
     refreshMediaButtonSession()
   }
 
   private fun suspendMediaRouteForCommunication() {
+    communicationSuspended = true
     Log.d(TAG, "suspending media keep-alive before bluetooth communication route")
+    mediaSession.setPlaybackState(mediaButtonPlaybackState(active = false))
+    mediaSession.isActive = false
     silentMediaKeepAlive.stop()
     mediaKeyFocus?.abandon()
   }
 
   companion object {
+    @Volatile private var instance: BluetoothMediaButtonService? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     private const val NOTIFICATION_ID = 1004
+    private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
     const val ACTION_START_SESSION = "com.vibecodingjapan.ideavox.bluetooth.START_SESSION"
     const val ACTION_STOP_SESSION = "com.vibecodingjapan.ideavox.bluetooth.STOP_SESSION"
     const val ACTION_REFRESH_SESSION = "com.vibecodingjapan.ideavox.bluetooth.REFRESH_SESSION"
@@ -263,23 +350,38 @@ class BluetoothMediaButtonService : Service() {
 
     fun suspendMediaRouteForCommunication(context: Context) {
       if (!appStore.snapshot.value.bluetoothHeadsetControlMonitoringEnabled) return
-      context.applicationContext.startService(
-        Intent(context.applicationContext, BluetoothMediaButtonService::class.java)
-          .setAction(ACTION_SUSPEND_MEDIA_ROUTE)
-      )
+      val suspend = {
+        val service = instance
+        if (service != null) service.suspendMediaRouteForCommunication()
+        else context.applicationContext.startService(
+          Intent(context.applicationContext, BluetoothMediaButtonService::class.java)
+            .setAction(ACTION_SUSPEND_MEDIA_ROUTE)
+        )
+        Unit
+      }
+      // Run ahead of the following placeCall on the same main looper. Starting
+      // the service asynchronously otherwise leaves an overlapping media session.
+      if (Looper.myLooper() == Looper.getMainLooper()) suspend() else mainHandler.post(suspend)
     }
   }
 }
 
 object BluetoothHeadsetRecordingActions {
+  private val keyDeduplicator = BluetoothKeyDeduplicator()
   fun handleMediaKeyEvent(context: Context, event: KeyEvent): Boolean {
-    if (!appStore.snapshot.value.bluetoothHeadsetControlMonitoringEnabled) return false
-    if (event.action == KeyEvent.ACTION_UP) return true
+    if (!appStore.snapshot.value.bluetoothHeadsetControlMonitoringEnabled && !BluetoothTouchDiagnostics.active) return false
+    val supported = event.keyCode in BluetoothMediaKeys.supported
+    BluetoothTouchDiagnostics.record("KEY ${KeyEvent.keyCodeToString(event.keyCode)} action=${event.action} repeat=${event.repeatCount} long=${event.isLongPress} device=${event.deviceId} source=${event.source} downAt=${event.downTime} eventAt=${event.eventTime}")
+    Log.i(TAG, "key code=${event.keyCode} action=${event.action} repeat=${event.repeatCount} device=${event.deviceId} source=${event.source} eventAt=${event.eventTime} receivedAt=${SystemClock.uptimeMillis()} status=${RecordingRuntime.state.value.status} supported=$supported")
+    if (!supported) return false // Do not swallow volume/navigation key-up events.
+    if (BluetoothTouchDiagnostics.active) return true // Observe repeats and key-up before any deduplication or action mapping.
     if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return true
-    Log.d(TAG, "media key down: keyCode=${event.keyCode}, status=${RecordingRuntime.state.value.status}")
+    if (!keyDeduplicator.accept(event.deviceId, event.keyCode, event.downTime, event.eventTime, SystemClock.uptimeMillis())) return true
     return when (event.keyCode) {
       KeyEvent.KEYCODE_MEDIA_NEXT,
       KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+      KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+      KeyEvent.KEYCODE_MEDIA_REWIND,
       -> {
         handleHeadsetOperation(context, BluetoothHeadsetOperation.NEXT, event.keyCode)
         true
@@ -288,6 +390,7 @@ object BluetoothHeadsetRecordingActions {
       KeyEvent.KEYCODE_MEDIA_PLAY,
       KeyEvent.KEYCODE_MEDIA_PAUSE,
       KeyEvent.KEYCODE_HEADSETHOOK,
+      KeyEvent.KEYCODE_MEDIA_STOP,
       -> {
         handleHeadsetOperation(context, BluetoothHeadsetOperation.PLAY_PAUSE, event.keyCode)
         true
@@ -377,16 +480,19 @@ class BluetoothMediaButtonReceiver : BroadcastReceiver() {
 
 private const val TAG = "IdeavoxBtKeys"
 
-private fun mediaButtonPlaybackState(): PlaybackState {
+private fun mediaButtonPlaybackState(active: Boolean): PlaybackState {
   return PlaybackState.Builder()
     .setActions(
       PlaybackState.ACTION_PLAY or
         PlaybackState.ACTION_PAUSE or
         PlaybackState.ACTION_PLAY_PAUSE or
         PlaybackState.ACTION_SKIP_TO_NEXT or
-        PlaybackState.ACTION_FAST_FORWARD
+        PlaybackState.ACTION_FAST_FORWARD or
+        PlaybackState.ACTION_STOP or
+        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+        PlaybackState.ACTION_REWIND
     )
-    .setState(PlaybackState.STATE_PLAYING, 0L, 1f, System.currentTimeMillis())
+    .setState(if (active) PlaybackState.STATE_PLAYING else PlaybackState.STATE_STOPPED, 0L, if (active) 1f else 0f, SystemClock.elapsedRealtime())
     .build()
 }
 
@@ -410,92 +516,63 @@ private fun voicePromptAttributes(): AudioAttributes =
     .build()
 
 private class SilentMediaKeepAlive {
-  private val running = AtomicBoolean(false)
   private val lock = Any()
-  @Volatile private var audioTrack: AudioTrack? = null
-  @Volatile private var worker: Thread? = null
+  private var runToken: AtomicBoolean? = null
+  private var audioTrack: AudioTrack? = null
 
   fun start() {
     synchronized(lock) {
-      if (!running.compareAndSet(false, true)) return
-    }
-    worker =
-      Thread {
-        val sampleRate = 8000
-        val format =
-          AudioFormat.Builder()
-            .setSampleRate(sampleRate)
-            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .build()
-        val bufferSize =
-          AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            .coerceAtLeast(2048)
-        val track =
-          runCatching {
-            AudioTrack.Builder()
-              .setAudioAttributes(mediaPlaybackAttributes())
-              .setAudioFormat(format)
-              .setBufferSizeInBytes(bufferSize)
-              .setTransferMode(AudioTrack.MODE_STREAM)
-              .build()
-          }.getOrElse { error ->
-            Log.w(TAG, "silent media keep-alive AudioTrack build failed", error)
-            running.set(false)
-            return@Thread
+      if (runToken?.get() == true) return
+      val token = AtomicBoolean(true)
+      runToken = token
+      Thread({
+        var track: AudioTrack? = null
+        try {
+          val sampleRate = 8000
+          val bufferSize = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(2048)
+          track = AudioTrack.Builder()
+            .setAudioAttributes(mediaPlaybackAttributes())
+            .setAudioFormat(AudioFormat.Builder().setSampleRate(sampleRate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(bufferSize).setTransferMode(AudioTrack.MODE_STREAM).build()
+          check(track.state == AudioTrack.STATE_INITIALIZED)
+          synchronized(lock) {
+            if (!token.get()) return@Thread
+            audioTrack = track
+            track.setVolume(0f)
+            track.play()
           }
-        audioTrack = track
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-          Log.w(TAG, "silent media keep-alive AudioTrack was not initialized")
-          running.set(false)
-          runCatching { track.release() }
-          audioTrack = null
-          return@Thread
-        }
-        val silence = ByteArray(bufferSize)
-        runCatching {
-          track.setVolume(0f)
-          track.play()
-          Log.d(TAG, "silent media keep-alive started")
-          while (running.get()) {
-            BluetoothMediaRouteState.update(runCatching { track.routedDevice }.getOrNull())
-            val written = track.write(silence, 0, silence.size)
-            if (written < 0) {
-              Log.w(TAG, "silent media keep-alive write failed: $written")
-              Thread.sleep(40L)
+          val silence = ByteArray(bufferSize)
+          while (token.get()) {
+            synchronized(lock) {
+              if (runToken === token) BluetoothMediaRouteState.update(track.routedDevice)
+            }
+            if (track.write(silence, 0, silence.size) < 0) break
+          }
+        } catch (error: Exception) {
+          Log.w(TAG, "silent media keep-alive failed", error)
+        } finally {
+          runCatching { track?.pause() }
+          runCatching { track?.flush() }
+          runCatching { track?.release() }
+          synchronized(lock) {
+            // An old writer must never clear a newer writer's route or running flag.
+            if (runToken === token) {
+              runToken = null
+              audioTrack = null
+              BluetoothMediaRouteState.update(null)
             }
           }
-        }.onFailure { error ->
-          Log.w(TAG, "silent media keep-alive stopped after error", error)
         }
-        runCatching { track.pause() }
-        runCatching { track.flush() }
-        runCatching { track.release() }
-        audioTrack = null
-        BluetoothMediaRouteState.update(null)
-        Log.d(TAG, "silent media keep-alive stopped")
-      }.also { thread ->
-        thread.name = "ideavox-silent-media-keep-alive"
-        thread.isDaemon = true
-        thread.start()
-      }
-  }
-
-  fun restart() {
-    stop()
-    start()
+      }, "ideavox-silent-media-keep-alive").apply { isDaemon = true }.start()
+    }
   }
 
   fun stop() {
-    val threadToJoin =
-      synchronized(lock) {
-        if (!running.getAndSet(false)) return
-        runCatching { audioTrack?.pause() }
-        runCatching { audioTrack?.flush() }
-        worker.also { worker = null }
-      }
-    if (Thread.currentThread() != threadToJoin) {
-      runCatching { threadToJoin?.join(220L) }
+    synchronized(lock) {
+      runToken?.set(false)
+      runCatching { audioTrack?.pause() }
+      runCatching { audioTrack?.flush() }
+      // No thread join on the main thread. Each writer has its own cancellation token.
     }
   }
 }
@@ -513,6 +590,7 @@ object BluetoothMediaRouteState {
       routedDeviceType = nextType
       routedDeviceName = device?.productName?.toString()
       Log.i(TAG, "silent media route changed: ${description()}")
+      BluetoothTouchDiagnostics.record("MEDIA route ${description()}")
     }
   }
 
@@ -534,16 +612,26 @@ object BluetoothMediaRouteState {
 
 class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.OnInitListener {
   private val appContext = context.applicationContext
+  private val mainHandler = Handler(Looper.getMainLooper())
+  private var utteranceSequence = 0L
   private val tts = TextToSpeech(appContext, this)
   private val pending = ArrayDeque<VoicePromptRequest>()
   @Volatile private var ready = false
 
   override fun onInit(status: Int) {
-    ready = status == TextToSpeech.SUCCESS
-    if (!ready) return
-    tts.language = AppLanguageManager.current(appContext).locale
-    while (pending.isNotEmpty()) {
-      speakNow(pending.removeFirst())
+    mainHandler.post {
+      ready = status == TextToSpeech.SUCCESS
+      Log.i(TAG, "voice prompt engine ready=$ready")
+      if (ready) {
+        tts.language = AppLanguageManager.current(appContext).locale
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+          override fun onStart(id: String?) { Log.i(TAG, "voice prompt started id=$id") }
+          override fun onDone(id: String?) { Log.i(TAG, "voice prompt completed id=$id") }
+          @Deprecated("Legacy TTS callback")
+          override fun onError(id: String?) { Log.w(TAG, "voice prompt failed id=$id") }
+        })
+        while (pending.isNotEmpty()) speakNow(pending.removeFirst())
+      }
     }
   }
 
@@ -555,10 +643,12 @@ class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.O
     text: String,
     useVoiceCommunication: Boolean,
     speechRate: Float = 1.0f,
+    flush: Boolean = true,
   ) {
     if (text.isBlank()) return
-    val request = VoicePromptRequest(text, useVoiceCommunication, speechRate)
+    val request = VoicePromptRequest(text, useVoiceCommunication, speechRate, flush)
     if (!ready) {
+      if (flush) pending.clear() // Control feedback replaces stale prompts; completion feedback queues.
       pending.addLast(request)
       return
     }
@@ -572,10 +662,10 @@ class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.O
     tts.setSpeechRate(request.speechRate)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       tts.setAudioAttributes(if (request.useVoiceCommunication) voicePromptAttributes() else mediaPlaybackAttributes())
-      tts.speak(localizedText, TextToSpeech.QUEUE_FLUSH, null, "ideavox-headset-${System.currentTimeMillis()}")
+      tts.speak(localizedText, if (request.flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "ideavox-headset-${++utteranceSequence}")
     } else {
       @Suppress("DEPRECATION")
-      tts.speak(localizedText, TextToSpeech.QUEUE_FLUSH, null)
+      tts.speak(localizedText, if (request.flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null)
     }
   }
 
@@ -589,13 +679,21 @@ class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.O
 
   companion object {
     @Volatile private var instance: MandarinVoicePrompt? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private fun onMain(action: () -> Unit) {
+      if (Looper.myLooper() == Looper.getMainLooper()) action() else handler.post { action() }
+    }
+
+    fun enqueue(context: Context, text: String, useVoiceCommunication: Boolean) {
+      onMain { prompt(context).speak(text, useVoiceCommunication, flush = false) }
+    }
 
     fun speak(context: Context, text: String) {
-      prompt(context).speak(text)
+      onMain { prompt(context).speak(text) }
     }
 
     fun speak(context: Context, text: String, useVoiceCommunication: Boolean) {
-      prompt(context).speak(text, useVoiceCommunication)
+      onMain { prompt(context).speak(text, useVoiceCommunication) }
     }
 
     fun speak(
@@ -604,14 +702,17 @@ class MandarinVoicePrompt private constructor(context: Context) : TextToSpeech.O
       useVoiceCommunication: Boolean,
       speechRate: Float,
     ) {
-      prompt(context).speak(text, useVoiceCommunication, speechRate)
+      onMain { prompt(context).speak(text, useVoiceCommunication, speechRate) }
     }
 
     fun stop() {
-      instance?.stop()
+      onMain { instance?.stop() }
     }
 
-    fun isReady(context: Context): Boolean = prompt(context).ready
+    fun isReady(context: Context): Boolean {
+      onMain { prompt(context) }
+      return instance?.ready == true
+    }
 
     private fun prompt(context: Context): MandarinVoicePrompt {
       val appContext = context.applicationContext
@@ -626,6 +727,7 @@ private data class VoicePromptRequest(
   val text: String,
   val useVoiceCommunication: Boolean,
   val speechRate: Float,
+  val flush: Boolean,
 )
 
 private class BluetoothMediaKeyFocus(
@@ -635,6 +737,7 @@ private class BluetoothMediaKeyFocus(
   private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
   private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
     Log.d(TAG, "audio focus change: $change")
+    BluetoothTouchDiagnostics.record("FOCUS change=$change")
   }
   private val focusRequest =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

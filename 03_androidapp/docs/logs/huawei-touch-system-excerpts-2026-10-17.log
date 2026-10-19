@@ -1,0 +1,37 @@
+10-17 23:28:41.449  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=true
+10-17 23:28:41.450  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:41.470  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=false
+10-17 23:28:41.470  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:28:45.742  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=75 pushed=true
+10-17 23:28:45.743  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=75 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:45.766  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=75 pushed=false
+10-17 23:28:45.766  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=75 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:28:50.271  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=76 pushed=true
+10-17 23:28:50.272  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=76 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:50.292  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=76 pushed=false
+10-17 23:28:50.292  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=76 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:28:54.893  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=true
+10-17 23:28:54.894  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:54.914  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=70 pushed=false
+10-17 23:28:54.915  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=70 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:28:57.158  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=75 pushed=true
+10-17 23:28:57.159  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=75 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:57.173  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=75 pushed=false
+10-17 23:28:57.173  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=75 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:28:59.875  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=76 pushed=true
+10-17 23:28:59.875  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=76 pushed=true to com.vibecodingjapan.ideavox
+10-17 23:28:59.898  5876  7449 D AvrcpNativeInterface: sendMediaKeyEvent: keyEvent=76 pushed=false
+10-17 23:28:59.898  5876  7449 D AvrcpTargetService: sendMediaKeyEvent: a2dp device=XX:XX:XX:XX:B2:6A key=76 pushed=false to com.vibecodingjapan.ideavox
+10-17 23:29:38.995  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=broadcastAudioState: XX:XX:XX:XX:B2:6A: 10->12
+10-17 23:31:30.960  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=processAudioEvent: audio disconnected by remote
+10-17 23:31:30.963  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=broadcastAudioState: XX:XX:XX:XX:B2:6A: 12->10
+10-17 23:31:31.744  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=broadcastAudioState: XX:XX:XX:XX:B2:6A: 10->12
+10-17 23:31:52.706  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_HANGUP_CALL[5], valInt=0, valInt2=0, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-17 23:31:52.706  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_HANGUP_CALL[5], valInt=0, valInt2=0, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-17 23:31:52.736  5876 28697 I BluetoothInCallService: BT - hanging up call
+10-17 23:32:00.856  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=DISCONNECT_AUDIO, device=XX:XX:XX:XX:B2:6A
+10-17 23:32:00.890  5876 28697 D HeadsetStateMachine: AudioDisconnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=processAudioEvent: audio disconnected
+10-17 23:32:00.895  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=broadcastAudioState: XX:XX:XX:XX:B2:6A: 12->10
+10-17 23:32:53.108  5876  7449 D AvrcpNativeInterface: setVolume: volume=50
+10-17 23:32:54.352  5876  7449 D AvrcpNativeInterface: setVolume: volume=42
+10-17 23:33:04.600  5876  7449 D AvrcpNativeInterface: setVolume: volume=33

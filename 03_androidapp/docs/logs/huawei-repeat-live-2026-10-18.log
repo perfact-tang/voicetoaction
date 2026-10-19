@@ -1,0 +1,277 @@
+10-18 00:09:00.212 15553 15553 I IdeavoxBtWorkflow: trigger at=1807059511 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807064511) effect=ArmRecordingStart
+10-18 00:09:00.212 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:09:04.258 15553 15553 I IdeavoxBtWorkflow: trigger at=1807063557 telecom=false status=IDLE phase=StartingRecording(recordingId=362bbc12-93f6-404d-8433-0b512f4a8ef4, expiresAt=1807075557, stopRequested=false) effect=StartRecording(recordingId=362bbc12-93f6-404d-8433-0b512f4a8ef4)
+10-18 00:09:04.265 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:09:04.285 15553 15553 I IdeavoxBtTelecom: release call session=null reason=replace
+10-18 00:09:04.328 15553 15553 I IdeavoxBtTelecom: requested call session=1 recording=362bbc12-93f6-404d-8433-0b512f4a8ef4 requiresSco=true
+10-18 00:09:04.428  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:09:04.433 15553 15553 I IdeavoxBtTelecomSvc: call focus gained
+10-18 00:09:04.439  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-18 00:09:04.452 15553 15553 I IdeavoxBtTelecom: attached call session=1 recording=362bbc12-93f6-404d-8433-0b512f4a8ef4
+10-18 00:09:04.453 15553 15553 I IdeavoxBtConnection: call state=3 session=1 destroyed=false
+10-18 00:09:04.453 15553 15553 I IdeavoxBtConnection: call state=4 session=1 destroyed=false
+10-18 00:09:04.453 15553 15553 I IdeavoxBtTelecom: call active session=1; waiting for endpoint and audio
+10-18 00:09:04.463  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:09:04.544 15553 15553 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-18 00:09:04.546 15553 15553 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:09:04.548 15553 15553 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-18 00:09:04.588 15553 15553 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:09:04.628 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=1 ready=false
+10-18 00:09:04.643  5876 28697 D HeadsetStateMachine: AudioConnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:09:05.038 15553 15553 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-18 00:09:05.040 15553 15553 I IdeavoxBtTelecom: HFP audio connected=true call=1 ready=true
+10-18 00:09:05.084 15553 15553 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:09:05.088 15553 15553 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:09:05.129 15553 19562 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:09:05.222 15553 19562 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-18 00:09:05.234 15553 19562 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-18 00:09:05.234 15553 19562 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-18 00:09:05.550 15553 19562 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=8735, type=7
+10-18 00:09:05.567 15553 19562 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=438
+10-18 00:09:05.721 15553 15553 I IdeavoxBtWorkflow: recording started announcement queued recording=362bbc12-93f6-404d-8433-0b512f4a8ef4 bluetooth=true
+10-18 00:09:06.612  5876 28697 D BluetoothInCallService: call 137971624 CLCC index is 1
+10-18 00:09:06.612  5876 28697 I BluetoothInCallService: sending clcc for BluetoothCall 1, 0, 0, false, 129
+10-18 00:09:56.945 15553 19562 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:09:57.032 15553 19562 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=88
+10-18 00:09:57.099 15553 15553 I IdeavoxBtTelecom: release call session=1 reason=app
+10-18 00:09:57.099 15553 15553 I IdeavoxBtConnection: call state=6 session=1 destroyed=true
+10-18 00:09:57.100 15553 15553 I IdeavoxBtTelecom: destroyed call session=1 current=null
+10-18 00:09:57.181  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-18 00:09:57.194  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:09:57.371 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=null ready=false
+10-18 00:09:58.469 15553 15553 I IdeavoxBtKeys: volume response stream=10 value=5 previous=6 recording=IDLE
+10-18 00:10:03.230 15553 15553 I IdeavoxBtWorkflow: trigger at=1807122529 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807127529) effect=ArmRecordingStart
+10-18 00:10:03.230 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:10:11.858 15553 15553 I IdeavoxBtWorkflow: trigger at=1807131158 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807136158) effect=ArmRecordingStart
+10-18 00:10:11.858 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:10:13.436 15553 15553 I IdeavoxBtWorkflow: trigger at=1807132736 telecom=false status=IDLE phase=StartingRecording(recordingId=3aa83e3c-9984-4d96-aeac-c163d4eeb80a, expiresAt=1807144736, stopRequested=false) effect=StartRecording(recordingId=3aa83e3c-9984-4d96-aeac-c163d4eeb80a)
+10-18 00:10:13.437 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:10:13.462 15553 15553 I IdeavoxBtTelecom: release call session=null reason=replace
+10-18 00:10:13.475 15553 15553 I IdeavoxBtTelecom: requested call session=2 recording=3aa83e3c-9984-4d96-aeac-c163d4eeb80a requiresSco=true
+10-18 00:10:13.508  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:10:13.519  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-18 00:10:13.526 15553 15553 I IdeavoxBtTelecomSvc: call focus gained
+10-18 00:10:13.530 15553 15553 I IdeavoxBtTelecom: attached call session=2 recording=3aa83e3c-9984-4d96-aeac-c163d4eeb80a
+10-18 00:10:13.530 15553 15553 I IdeavoxBtConnection: call state=3 session=2 destroyed=false
+10-18 00:10:13.530 15553 15553 I IdeavoxBtConnection: call state=4 session=2 destroyed=false
+10-18 00:10:13.530 15553 15553 I IdeavoxBtTelecom: call active session=2; waiting for endpoint and audio
+10-18 00:10:13.539  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:10:13.602 15553 15553 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-18 00:10:13.606 15553 15553 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:13.612 15553 15553 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:13.612 15553 15553 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-18 00:10:13.660 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=2 ready=false
+10-18 00:10:13.694  5876 28697 D HeadsetStateMachine: AudioConnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:14.491 15553 15553 I IdeavoxBtTelecom: HFP audio connected=true call=2 ready=true
+10-18 00:10:14.519 15553 15553 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-18 00:10:14.528 15553 15553 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:10:14.532 15553 15553 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:10:14.545 15553 19669 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:10:14.553 15553 19669 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-18 00:10:14.559 15553 19669 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-18 00:10:14.559 15553 19669 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-18 00:10:14.713 15553 19669 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=8735, type=7
+10-18 00:10:14.799 15553 19669 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=255
+10-18 00:10:15.026 15553 15553 I IdeavoxBtWorkflow: recording started announcement queued recording=3aa83e3c-9984-4d96-aeac-c163d4eeb80a bluetooth=true
+10-18 00:10:15.629  5876 28697 D BluetoothInCallService: call 264133991 CLCC index is 1
+10-18 00:10:15.629  5876 28697 I BluetoothInCallService: sending clcc for BluetoothCall 1, 0, 0, false, 129
+10-18 00:10:35.873 15553 19669 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:10:35.984 15553 19669 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=112
+10-18 00:10:36.032 15553 15553 I IdeavoxBtTelecom: release call session=2 reason=app
+10-18 00:10:36.032 15553 15553 I IdeavoxBtConnection: call state=6 session=2 destroyed=true
+10-18 00:10:36.032 15553 15553 I IdeavoxBtTelecom: destroyed call session=2 current=null
+10-18 00:10:36.057  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-18 00:10:36.060  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:10:36.293 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=null ready=false
+10-18 00:10:42.540 15553 15553 I IdeavoxBtWorkflow: trigger at=1807161840 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807166840) effect=ArmRecordingStart
+10-18 00:10:42.541 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:10:44.561 15553 15553 I IdeavoxBtWorkflow: trigger at=1807163861 telecom=false status=IDLE phase=StartingRecording(recordingId=b2718d04-10c7-44fa-98d3-4e11d48a240c, expiresAt=1807175861, stopRequested=false) effect=StartRecording(recordingId=b2718d04-10c7-44fa-98d3-4e11d48a240c)
+10-18 00:10:44.568 15553 15553 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:10:44.599 15553 15553 I IdeavoxBtTelecom: release call session=null reason=replace
+10-18 00:10:44.620 15553 15553 I IdeavoxBtTelecom: requested call session=3 recording=b2718d04-10c7-44fa-98d3-4e11d48a240c requiresSco=true
+10-18 00:10:44.659  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:10:44.669  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-18 00:10:44.679 15553 15553 I IdeavoxBtTelecomSvc: call focus gained
+10-18 00:10:44.685 15553 15553 I IdeavoxBtTelecom: attached call session=3 recording=b2718d04-10c7-44fa-98d3-4e11d48a240c
+10-18 00:10:44.685 15553 15553 I IdeavoxBtConnection: call state=3 session=3 destroyed=false
+10-18 00:10:44.685 15553 15553 I IdeavoxBtConnection: call state=4 session=3 destroyed=false
+10-18 00:10:44.685 15553 15553 I IdeavoxBtTelecom: call active session=3; waiting for endpoint and audio
+10-18 00:10:44.687 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:44.688 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:44.695  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:10:44.722 15553 15553 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-18 00:10:44.725 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:44.731 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:10:44.731 15553 15553 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-18 00:10:44.800 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=3 ready=false
+10-18 00:10:44.815  5876 28697 D HeadsetStateMachine: AudioConnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:45.224 15553 15553 I IdeavoxBtTelecom: HFP audio connected=true call=3 ready=true
+10-18 00:10:45.247 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:10:45.266 15553 15553 I IdeavoxBtTelecom: call endpoint session=3 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:10:45.280 15553 15553 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-18 00:10:45.310 15553 19752 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:10:45.318 15553 19752 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-18 00:10:45.321 15553 19752 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-18 00:10:45.321 15553 19752 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-18 00:10:45.575 15553 19752 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=8735, type=7
+10-18 00:10:45.607 15553 19752 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=298
+10-18 00:10:45.824 15553 15553 I IdeavoxBtWorkflow: recording started announcement queued recording=b2718d04-10c7-44fa-98d3-4e11d48a240c bluetooth=true
+10-18 00:10:46.819  5876 28697 D BluetoothInCallService: call 65633596 CLCC index is 1
+10-18 00:10:46.819  5876 28697 I BluetoothInCallService: sending clcc for BluetoothCall 1, 0, 0, false, 129
+10-18 00:10:57.406  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:57.406  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:57.448 15553 15553 I IdeavoxBtKeys: volume response stream=6 value=14 previous=15 recording=RECORDING
+10-18 00:10:57.451 15553 15553 I IdeavoxBtKeys: volume response stream=0 value=14 previous=15 recording=RECORDING
+10-18 00:10:58.719  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:58.719  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:10:58.741 15553 15553 I IdeavoxBtKeys: volume response stream=6 value=15 previous=14 recording=RECORDING
+10-18 00:10:58.768 15553 15553 I IdeavoxBtKeys: volume response stream=0 value=15 previous=14 recording=RECORDING
+10-18 00:11:15.259 15553 19752 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:11:15.376 15553 19752 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=117
+10-18 00:11:15.439 15553 15553 I IdeavoxBtTelecom: release call session=3 reason=app
+10-18 00:11:15.439 15553 15553 I IdeavoxBtConnection: call state=6 session=3 destroyed=true
+10-18 00:11:15.439 15553 15553 I IdeavoxBtTelecom: destroyed call session=3 current=null
+10-18 00:11:15.521  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-18 00:11:15.525  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:11:15.690 15553 15553 I IdeavoxBtTelecom: HFP audio connected=false call=null ready=false
+10-18 00:11:16.605 15553 15553 I IdeavoxBtKeys: volume response stream=10 value=5 previous=6 recording=IDLE
+10-18 00:13:59.881 15553 15553 I IdeavoxBtKeys: volume response stream=10 value=6 previous=5 recording=IDLE
+10-18 00:13:59.881 15553 15553 I IdeavoxBtKeys: volume response stream=9 value=5 previous=4 recording=IDLE
+10-18 00:13:59.881 15553 15553 I IdeavoxBtKeys: volume response stream=3 value=5 previous=4 recording=IDLE
+10-18 00:14:35.284 15553 15553 I IdeavoxBtKeys: volume response stream=10 value=2 previous=1 recording=IDLE
+10-18 00:14:35.292 15553 15553 I IdeavoxBtKeys: volume response stream=9 value=1 previous=5 recording=IDLE
+10-18 00:14:35.308 15553 15553 I IdeavoxBtKeys: volume response stream=3 value=1 previous=0 recording=IDLE
+10-18 00:14:36.124 15553 15553 I IdeavoxBtKeys: volume response stream=10 value=4 previous=3 recording=IDLE
+10-18 00:14:36.141 15553 15553 I IdeavoxBtKeys: volume response stream=9 value=4 previous=3 recording=IDLE
+10-18 00:14:36.152 15553 15553 I IdeavoxBtKeys: volume response stream=3 value=4 previous=3 recording=IDLE
+10-18 00:14:37.842 15553 15553 I IdeavoxBtKeys: volume response stream=9 value=3 previous=4 recording=IDLE
+10-18 00:14:37.850 15553 15553 I IdeavoxBtKeys: volume response stream=3 value=3 previous=4 recording=IDLE
+10-18 00:18:17.949 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:18:17.957 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:18:17.972 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:19:17.524 25600 25600 I IdeavoxBtWorkflow: trigger at=1807676823 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807681823) effect=ArmRecordingStart
+10-18 00:19:17.524 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:19:19.589 25600 25600 I IdeavoxBtWorkflow: trigger at=1807678889 telecom=false status=IDLE phase=StartingRecording(recordingId=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9, expiresAt=1807690889, stopRequested=false) effect=StartRecording(recordingId=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9)
+10-18 00:19:19.593 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:19:19.602 25600 27132 I IdeavoxBtWorkflow: No bluetooth headset is connected; starting automated recording with the system default microphone and media route
+10-18 00:19:19.615 25600 27337 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:19:19.632 25600 27337 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=null, telecomFallback=false
+10-18 00:19:19.697 25600 27337 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=81
+10-18 00:19:19.800 25600 25600 I IdeavoxBtWorkflow: recording started announcement queued recording=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9 bluetooth=false
+10-18 00:19:19.806 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=RECORDING
+10-18 00:19:19.824 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=RECORDING
+10-18 00:19:50.766 25600 25600 I IdeavoxBtWorkflow: trigger at=1807710065 telecom=false status=RECORDING phase=PreparingUploadConfirmation(recordingId=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9, uploadRequested=false) effect=StopAndArmUpload(recordingId=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9)
+10-18 00:19:50.770 25600 27337 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:19:50.976 25600 27337 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=207
+10-18 00:19:50.979 25600 25600 I IdeavoxBtWorkflow: recording finalized id=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9 phase=AwaitingUploadConfirmation(recordingId=2d9a9def-cf0b-40f2-ad18-95b4d37a70e9, expiresAt=1807720278) effect=Ignore
+10-18 00:19:51.062 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:19:51.085 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:19:51.096 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:19:51.123 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:20:11.457  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=1, valInt2=8, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:20:11.706  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:20:52.580 25600 25600 I IdeavoxBtWorkflow: trigger at=1807771880 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1807776880) effect=ArmRecordingStart
+10-18 00:20:52.580 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:20:54.547 25600 25600 I IdeavoxBtWorkflow: trigger at=1807773846 telecom=false status=IDLE phase=StartingRecording(recordingId=0f3e5db9-a1ee-4e4e-8bfc-8b9e959bcf59, expiresAt=1807785846, stopRequested=false) effect=StartRecording(recordingId=0f3e5db9-a1ee-4e4e-8bfc-8b9e959bcf59)
+10-18 00:20:54.550 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:20:54.568 25600 25600 I IdeavoxBtTelecom: release call session=null reason=replace
+10-18 00:20:54.596 25600 25600 I IdeavoxBtTelecom: requested call session=1 recording=0f3e5db9-a1ee-4e4e-8bfc-8b9e959bcf59 requiresSco=true
+10-18 00:20:54.704  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:20:54.713  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-18 00:20:54.723 25600 25600 I IdeavoxBtTelecomSvc: call focus gained
+10-18 00:20:54.737 25600 25600 I IdeavoxBtTelecom: attached call session=1 recording=0f3e5db9-a1ee-4e4e-8bfc-8b9e959bcf59
+10-18 00:20:54.737 25600 25600 I IdeavoxBtConnection: call state=3 session=1 destroyed=false
+10-18 00:20:54.737 25600 25600 I IdeavoxBtConnection: call state=4 session=1 destroyed=false
+10-18 00:20:54.737 25600 25600 I IdeavoxBtTelecom: call active session=1; waiting for endpoint and audio
+10-18 00:20:54.755  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:20:54.782 25600 25600 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-18 00:20:54.785 25600 25600 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:20:54.799 25600 25600 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:20:54.800 25600 25600 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-18 00:20:55.046  5876 28697 D HeadsetStateMachine: Connected: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:20:55.407 25600 25600 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-18 00:20:55.431 25600 25600 I IdeavoxBtTelecom: HFP audio connected=true call=1 ready=true
+10-18 00:20:55.445 25600 25600 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:20:55.455 25600 25600 I IdeavoxBtTelecom: call endpoint session=1 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:20:55.502 25600 28495 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:20:55.518 25600 28495 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-18 00:20:55.518 25600 28495 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-18 00:20:55.518 25600 28495 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-18 00:20:55.803 25600 28495 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=9218, type=7
+10-18 00:20:55.814 25600 28495 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=312
+10-18 00:20:56.037 25600 25600 I IdeavoxBtWorkflow: recording started announcement queued recording=0f3e5db9-a1ee-4e4e-8bfc-8b9e959bcf59 bluetooth=true
+10-18 00:20:56.091 25600 25600 I IdeavoxBtKeys: media ownership active=false suspended=true call=true recording=RECORDING
+10-18 00:20:56.977  5876 28697 D BluetoothInCallService: call 247505355 CLCC index is 1
+10-18 00:20:56.977  5876 28697 I BluetoothInCallService: sending clcc for BluetoothCall 1, 0, 0, false, 129
+10-18 00:23:47.725 25600 28495 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:23:47.807 25600 25600 I IdeavoxBtTelecom: release call session=1 reason=app
+10-18 00:23:47.807 25600 25600 I IdeavoxBtConnection: call state=6 session=1 destroyed=true
+10-18 00:23:47.808 25600 25600 I IdeavoxBtTelecom: destroyed call session=1 current=null
+10-18 00:23:47.810 25600 28495 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=86
+10-18 00:23:47.856  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-18 00:23:47.857 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:23:47.902  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:23:48.126 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:23:48.171 25600 25600 I IdeavoxBtTelecom: HFP audio connected=false call=null ready=false
+10-18 00:24:41.461 25600 25600 I IdeavoxBtWorkflow: trigger at=1808000760 telecom=false status=IDLE phase=AwaitingStartConfirmation(expiresAt=1808005760) effect=ArmRecordingStart
+10-18 00:24:41.461 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:24:43.592 25600 25600 I IdeavoxBtWorkflow: trigger at=1808002891 telecom=false status=IDLE phase=StartingRecording(recordingId=8ec20804-4145-4984-9c12-176171718de9, expiresAt=1808014891, stopRequested=false) effect=StartRecording(recordingId=8ec20804-4145-4984-9c12-176171718de9)
+10-18 00:24:43.594 25600 25600 I IdeavoxBtTelecom: release call session=null reason=app
+10-18 00:24:43.615 25600 25600 I IdeavoxBtTelecom: release call session=null reason=replace
+10-18 00:24:43.669 25600 25600 I IdeavoxBtTelecom: requested call session=2 recording=8ec20804-4145-4984-9c12-176171718de9 requiresSco=true
+10-18 00:24:43.736  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:24:43.748 25600 25600 I IdeavoxBtTelecomSvc: call focus gained
+10-18 00:24:43.753 25600 25600 I IdeavoxBtTelecom: attached call session=2 recording=8ec20804-4145-4984-9c12-176171718de9
+10-18 00:24:43.753 25600 25600 I IdeavoxBtConnection: call state=3 session=2 destroyed=false
+10-18 00:24:43.753 25600 25600 I IdeavoxBtConnection: call state=4 session=2 destroyed=false
+10-18 00:24:43.753 25600 25600 I IdeavoxBtTelecom: call active session=2; waiting for endpoint and audio
+10-18 00:24:43.754  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 2, ringing type 128,callsPendingSwitch false
+10-18 00:24:43.768  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 1, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:24:43.824 25600 25600 D IdeavoxBtConnection: requesting Telecom call endpoint HUAWEI Eyewear 2
+10-18 00:24:43.826 25600 25600 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:24:43.836 25600 25600 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=false HUAWEI Eyewear 2
+10-18 00:24:43.836 25600 25600 D IdeavoxBtConnection: Telecom accepted bluetooth call endpoint request
+10-18 00:24:43.909  5876 28697 D HeadsetStateMachine: AudioConnecting: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:24:43.938 25600 25600 I IdeavoxBtTelecom: HFP audio connected=false call=2 ready=false
+10-18 00:24:44.222 25600 25600 I IdeavoxBtTelecom: HFP audio connected=true call=2 ready=true
+10-18 00:24:44.236 25600 25600 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:24:44.240 25600 25600 I IdeavoxBtTelecom: call endpoint session=2 bluetooth=true ready=true HUAWEI Eyewear 2
+10-18 00:24:44.291 25600 30861 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START start status=IDLE
+10-18 00:24:44.297 25600 25600 I IdeavoxBtKeys: volume response stream=8 value=12 previous=11 recording=IDLE
+10-18 00:24:44.310 25600 30861 I IdeavoxRecording: bluetooth control route mode=AUTO inputType=7, telecomFallback=true
+10-18 00:24:44.310 25600 30861 I IdeavoxRecording: AudioManager communication list is stale; continuing with active Telecom route and requiring AudioRecord route verification
+10-18 00:24:44.310 25600 30861 I IdeavoxRecording: prewarmed telecom control ready before recording announcement=true
+10-18 00:24:44.511 25600 30861 I IdeavoxAudioRoute: AudioRecord routed to bluetooth id=9218, type=7
+10-18 00:24:44.526 25600 30861 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.START elapsedMs=235
+10-18 00:24:44.682 25600 25600 I IdeavoxBtWorkflow: recording started announcement queued recording=8ec20804-4145-4984-9c12-176171718de9 bluetooth=true
+10-18 00:24:44.715 25600 25600 I IdeavoxBtKeys: media ownership active=false suspended=true call=true recording=RECORDING
+10-18 00:24:45.869  5876 28697 D BluetoothInCallService: call 196186410 CLCC index is 1
+10-18 00:24:45.869  5876 28697 I BluetoothInCallService: sending clcc for BluetoothCall 1, 0, 0, false, 129
+10-18 00:27:12.047  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:12.047  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:13.959  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:13.959  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:14.012 25600 25600 I IdeavoxBtKeys: volume response stream=6 value=14 previous=15 recording=RECORDING
+10-18 00:27:14.013 25600 25600 I IdeavoxBtKeys: volume response stream=0 value=14 previous=15 recording=RECORDING
+10-18 00:27:36.883  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:36.883  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:36.929 25600 25600 I IdeavoxBtKeys: volume response stream=6 value=15 previous=14 recording=RECORDING
+10-18 00:27:36.929 25600 25600 I IdeavoxBtKeys: volume response stream=0 value=15 previous=14 recording=RECORDING
+10-18 00:27:38.337  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:38.337  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=14, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:38.372 25600 25600 I IdeavoxBtKeys: volume response stream=6 value=14 previous=15 recording=RECORDING
+10-18 00:27:38.387 25600 25600 I IdeavoxBtKeys: volume response stream=0 value=14 previous=15 recording=RECORDING
+10-18 00:27:39.412  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:39.412  5876 28697 D HeadsetStateMachine: AudioOn: currentDevice=XX:XX:XX:XX:B2:6A, msg=STACK_EVENT: EVENT_TYPE_VOLUME_CHANGED[6], valInt=0, valInt2=15, valObject=null, device=XX:XX:XX:XX:B2:6A
+10-18 00:27:39.461 25600 25600 I IdeavoxBtKeys: volume response stream=6 value=15 previous=14 recording=RECORDING
+10-18 00:27:39.465 25600 25600 I IdeavoxBtKeys: volume response stream=0 value=15 previous=14 recording=RECORDING
+10-18 00:29:05.927 25600 30861 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP start status=RECORDING
+10-18 00:29:06.072 25600 30861 I IdeavoxRecording: command=com.vibecodingjapan.ideavox.record.STOP elapsedMs=145
+10-18 00:29:06.082 25600 25600 I IdeavoxBtTelecom: release call session=2 reason=app
+10-18 00:29:06.082 25600 25600 I IdeavoxBtConnection: call state=6 session=2 destroyed=true
+10-18 00:29:06.082 25600 25600 I IdeavoxBtTelecom: destroyed call session=2 current=null
+10-18 00:29:06.097 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:29:06.125  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 7, ringing type 128,callsPendingSwitch false
+10-18 00:29:06.130  5876  5876 I BluetoothInCallService: updateHeadsetWithCallState numActive 0, numHeld 0, callState 6, ringing type 128,callsPendingSwitch false
+10-18 00:29:06.153 25600 25600 I IdeavoxBtKeys: media ownership active=true suspended=false call=false recording=IDLE
+10-18 00:29:06.372 25600 25600 I IdeavoxBtTelecom: HFP audio connected=false call=null ready=false

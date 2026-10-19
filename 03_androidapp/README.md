@@ -62,3 +62,36 @@ app/build/outputs/apk/debug/app-debug.apk
 - 已在 `medium_phone` Android 36 模拟器安装并启动 debug APK。
 - 端侧验证过主界面渲染、录音开始、切换到笔记页后红色“正在录音中”状态条保持、返回录音页停止后生成本地 WAV 录音条目。
 - 端侧验证过朗读模式布局，中文/日语/英语/韩语语言区、0.5x 到 2.5x 语速区、播放/暂停/停止/返回控制均可见；点击播放后 `ReaderService` 以前台服务启动并成功绑定系统 TTS，未再出现未绑定即 `speak` 的警告。
+
+## 蓝牙控制修复与调试（2026-10-17）
+
+- 首次按键只播报「我在」，进入 5 秒开始确认；实际接通麦克风开始收音后异步播报「开启录音」，不等待播报才收音。录音中按键结束后只播报「结束」，保留 10 秒上传确认。倒计时按单调时钟逐秒调度，确认按键可立即打断播报。
+- 路由协商、AudioRecord 准备和 WAV 收尾在单独的串行工作线程执行，主线程继续处理手机、媒体会话和 Telecom 回调。确认上传前等待 WAV header 和本地录音记录保存完成；准备期间再次按下会记住确认。
+- Telecom 通话控制期间暂停媒体保活；媒体控制模式保持同一条保活音轨，状态刷新不重建音轨。Telecom 已经建立的通话路由不再由 AudioManager 重复切换。保活线程使用独立取消标记，停止时不在主线程等待线程退出。
+- 支持播放、暂停、耳机挂钩、下一曲、快进、停止、上一曲、快退，以及 Telecom 挂断/保持/恢复/接听。只接管媒体键，音量键和普通按键继续交给系统。
+- 同一次物理按键跨入口去重。HUAWEI Eyewear 2 实测会发送 `downTime=eventTime=0` 的 AVRCP 事件，这类事件只做 80ms 短去重，避免后续按键一直被忽略。
+- 记录设备增减、实际录音路由变化、按键来源及接收时间、工作流状态、指令耗时和 TTS 播放回调。录音中检测到蓝牙输入切回非蓝牙输入时停止并保留已录部分。
+
+验证结果：67 个单元测试通过；`testDebugUnitTest assembleDebug assembleDebugAndroidTest lintDebug --no-configuration-cache` 通过。在 Android 16 实机连接 HUAWEI Eyewear 2 的一次媒体模式测试中，系统媒体键开启蓝牙 AudioRecord 约 1185ms，结束并保存约 164ms，结束按键在录音过程中正常到达。这是单次修复中间版本测量，不代表所有耳机或最终版本的稳定性能结论。后续手动恢复安装并授予权限后，AUTO/Telecom 模式确认键到蓝牙收音约 1.4 秒；MEDIA 模式开始服务约 1060ms、系统媒体暂停键结束并保存约 295ms。用户实测这两个中间配置下耳机手势仍未被应用接收，因此硬件控制问题尚未验收；已继续修正 MEDIA 模式下保活音轨被停掉的问题，覆盖更新后的用户真实手势验证仍失败，SCO 释放后左双击恢复正常，详见排查报告。自动 instrumentation 回归曾被 `INSTALL_FAILED_USER_RESTRICTED` 拦截，未执行测试用例。
+
+抓取日志：
+
+```bash
+adb logcat -v threadtime -s IdeavoxBtKeys IdeavoxBtWorkflow IdeavoxBtTelecom IdeavoxBtConnection IdeavoxAudioRoute IdeavoxRecording TextToSpeech AndroidRuntime
+```
+
+新增 `BluetoothRecordingControlInstrumentedTest` 验证真实蓝牙/系统麦克风、主线程响应、录音中媒体结束和 WAV 保存。它会产生一条本地测试录音，不主动触发上传。推荐使用测试设备。`gradle.properties` 已设置 `android.injected.androidTest.leaveApksInstalledAfterRun=true`，防止 Gradle 默认清理主应用及私有数据；不要在有未备份录音的设备上覆盖这个设置。手动覆盖安装和执行 instrumentation 不会主动卸载主应用：
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w -e class com.vibecodingjapan.ideavox.BluetoothRecordingControlInstrumentedTest com.vibecodingjapan.ideavox.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+后续纯触控诊断：HUAWEI Eyewear 2 媒体模式下左双击、右前滑、右后滑两轮六次分别发出暂停、下一曲、上一曲。仅 SCO 收音阶段未收到对应媒体键；Telecom 阶段确认眼镜 HFP 挂断指令到达应用，共三次挂断回调，之后 SCO 断开；后续音量变化不代表保持通话收音时的手势响应。详见 [触控实测与原始日志](docs/huawei-touch-probe-results-2026-10-17.md)，诊断入口见 [Debug 诊断页说明](docs/bluetooth-touch-probe.md)。手机设置临时切为 MEDIA 用于实测，原模式 AUTO 的快照及测试录音已在主机 `/tmp` 备份。
+
+本次完整硬件排查结果、已验证内容和未解决项见 [蓝牙控制实机排查报告](docs/bluetooth-debug-2026-10-17.md)。当前不能把“耳机麦克风录音期间的真实手势控制”标为已修复。
+
+10 月 18 日重复激活修复：每轮通话与录音身份绑定，隔离迟到回调；清理焦点与端点/SCO 就绪状态；挂断只结束所属录音一次，不再充当上传确认；准备超时可重新唤醒；媒体输出恢复后才进入上传倒计时。恢复实际开始收音后的「开启录音」提示。代码缺陷、日志证据及实机验收边界见 [重复激活排查与修复](docs/bluetooth-repeat-cycle-fix-2026-10-18.md)。
+
+该手机/眼镜在真正停用媒体会话后，左右双击仍未稳定发送挂断。实测确认录音中滑动可发送 HFP 通话音量变化；音量下调方案已实测两轮结束并确认上传。按用户后续要求，当前可选开关改为「录音中调高通话音量结束」：左侧前滑增大通话音量，结束并保存后倒计时；满音量时预留一档，手机通话音量键也可能触发。自动上传真正完成后播报当前应用语言的「自动上传成功」。此入口不代表双击问题已修复。新版通过 84 项单元测试及构建、lint，详见 [前滑结束与成功播报](docs/bluetooth-gesture-polish-2026-10-18.md)。

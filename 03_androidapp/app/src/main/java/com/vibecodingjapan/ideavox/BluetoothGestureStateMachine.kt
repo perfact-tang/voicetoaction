@@ -5,9 +5,9 @@ sealed interface BluetoothGesturePhase {
 
   data class AwaitingStartConfirmation(val expiresAt: Long) : BluetoothGesturePhase
 
-  data class StartingRecording(val recordingId: String, val expiresAt: Long) : BluetoothGesturePhase
+  data class StartingRecording(val recordingId: String, val expiresAt: Long, val stopRequested: Boolean = false) : BluetoothGesturePhase
 
-  data class PreparingUploadConfirmation(val recordingId: String) : BluetoothGesturePhase
+  data class PreparingUploadConfirmation(val recordingId: String, val uploadRequested: Boolean = false) : BluetoothGesturePhase
 
   data class AwaitingUploadConfirmation(
     val recordingId: String,
@@ -33,9 +33,28 @@ data class BluetoothGestureTransition(
 )
 
 object BluetoothGestureStateMachine {
-  const val START_CONFIRMATION_WINDOW_MS = 3_000L
+  const val START_CONFIRMATION_WINDOW_MS = 5_000L
   const val UPLOAD_CONFIRMATION_WINDOW_MS = 10_000L
   private const val STARTING_TIMEOUT_MS = 12_000L
+
+  fun onTelecomEnd(
+    phase: BluetoothGesturePhase,
+    recordingStatus: RecordingStatus,
+    activeRecordingId: String?,
+    callRecordingId: String?,
+  ): BluetoothGestureTransition {
+    val ignored = BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
+    if (callRecordingId == null) return ignored
+    if (phase is BluetoothGesturePhase.PreparingUploadConfirmation || phase is BluetoothGesturePhase.AwaitingUploadConfirmation) return ignored
+    if (phase is BluetoothGesturePhase.StartingRecording && phase.recordingId == callRecordingId && recordingStatus == RecordingStatus.IDLE) {
+      return BluetoothGestureTransition(phase.copy(stopRequested = true), BluetoothGestureEffect.Ignore)
+    }
+    if (activeRecordingId != callRecordingId || recordingStatus !in setOf(RecordingStatus.RECORDING, RecordingStatus.PAUSED)) return ignored
+    return BluetoothGestureTransition(
+      BluetoothGesturePhase.PreparingUploadConfirmation(callRecordingId),
+      BluetoothGestureEffect.StopAndArmUpload(callRecordingId),
+    )
+  }
 
   fun onTrigger(
     phase: BluetoothGesturePhase,
@@ -60,11 +79,17 @@ object BluetoothGestureStateMachine {
           )
         }
       is BluetoothGesturePhase.StartingRecording ->
-        if (now <= phase.expiresAt && recordingStatus == RecordingStatus.IDLE) {
-          return BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
+        if (recordingStatus == RecordingStatus.IDLE) {
+          if (now <= phase.expiresAt) {
+            return BluetoothGestureTransition(phase.copy(stopRequested = true), BluetoothGestureEffect.Ignore)
+          }
+          return BluetoothGestureTransition(
+            BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS),
+            BluetoothGestureEffect.ArmRecordingStart,
+          )
         }
       is BluetoothGesturePhase.PreparingUploadConfirmation ->
-        return BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
+        return BluetoothGestureTransition(phase.copy(uploadRequested = true), BluetoothGestureEffect.Ignore)
       BluetoothGesturePhase.Idle -> Unit
     }
 
@@ -79,6 +104,28 @@ object BluetoothGestureStateMachine {
         phase = BluetoothGesturePhase.AwaitingStartConfirmation(now + START_CONFIRMATION_WINDOW_MS),
         effect = BluetoothGestureEffect.ArmRecordingStart,
       )
+    }
+  }
+
+  fun onRecordingStarted(phase: BluetoothGesturePhase, recordingId: String): BluetoothGestureTransition {
+    if (phase !is BluetoothGesturePhase.StartingRecording || phase.recordingId != recordingId) {
+      return BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
+    }
+    return if (phase.stopRequested) {
+      BluetoothGestureTransition(BluetoothGesturePhase.PreparingUploadConfirmation(recordingId), BluetoothGestureEffect.StopAndArmUpload(recordingId))
+    } else {
+      BluetoothGestureTransition(BluetoothGesturePhase.Idle, BluetoothGestureEffect.Ignore)
+    }
+  }
+
+  fun onRecordingFinalized(phase: BluetoothGesturePhase, recordingId: String, now: Long): BluetoothGestureTransition {
+    if (phase !is BluetoothGesturePhase.PreparingUploadConfirmation || phase.recordingId != recordingId) {
+      return BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
+    }
+    return if (phase.uploadRequested) {
+      BluetoothGestureTransition(BluetoothGesturePhase.Idle, BluetoothGestureEffect.StartAutomaticUpload(recordingId))
+    } else {
+      BluetoothGestureTransition(armUploadConfirmation(phase, recordingId, now), BluetoothGestureEffect.Ignore)
     }
   }
 

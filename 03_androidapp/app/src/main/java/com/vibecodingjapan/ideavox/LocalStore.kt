@@ -141,6 +141,11 @@ class LocalStore(context: Context) {
   }
 
   @Synchronized
+  fun saveBluetoothVolumeStopEnabled(enabled: Boolean) {
+    save(_snapshot.value.copy(bluetoothVolumeStopEnabled = enabled))
+  }
+
+  @Synchronized
   fun saveBluetoothDefaultAICalling(item: AICallingItem?) {
     save(_snapshot.value.copy(bluetoothDefaultAICalling = item))
   }

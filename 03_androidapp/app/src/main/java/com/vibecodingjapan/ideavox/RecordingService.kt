@@ -5,22 +5,31 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioRouting
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.cancel
+import java.util.concurrent.Executors
 import java.io.File
 import java.io.RandomAccessFile
 import java.text.SimpleDateFormat
@@ -31,9 +40,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class RecordingService : Service() {
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  // Route negotiation and file finalization must never block MediaSession/Telecom callbacks.
+  private val commands = Executors.newSingleThreadExecutor { task ->
+    Thread(task, "ideavox-recording-commands")
+  }
   private val shouldRecord = AtomicBoolean(false)
   private val paused = AtomicBoolean(false)
   private var recorder: AudioRecord? = null
+  private var routingListener: AudioRouting.OnRoutingChangedListener? = null
   private var recordingJob: Job? = null
   private var currentFile: File? = null
   private var startedAt = 0L
@@ -50,16 +64,69 @@ class RecordingService : Service() {
   private var currentAICallingInfo: String? = null
   private var currentServiceId: String? = null
   private var currentServiceType: String? = null
+  private val volumeStopGate = BluetoothVolumeStopGate()
+  private var originalCallVolume: Int? = null
+  private var reservedCallVolume: Int? = null
+  private val volumeStopReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+      val state = RecordingRuntime.state.value
+      if (!appStore.snapshot.value.bluetoothVolumeStopEnabled || BluetoothTouchDiagnostics.active || !RecordingRuntime.activeInputIsBluetooth) return
+      if (state.status != RecordingStatus.RECORDING && state.status != RecordingStatus.PAUSED) return
+      val stream = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1)
+      val previous = intent.getIntExtra("android.media.EXTRA_PREV_VOLUME_STREAM_VALUE", -1)
+      val value = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1)
+      if (volumeStopGate.accept(state.activeRecordingId, stream, previous, value, android.os.SystemClock.elapsedRealtime())) {
+        android.util.Log.i(TAG, "optional volume-up stop recording=${state.activeRecordingId} stream=$stream $previous->$value")
+        BluetoothRecordingWorkflow.handleTelecomEnd(this@RecordingService, state.activeRecordingId)
+      }
+    }
+  }
+
+  override fun onCreate() {
+    super.onCreate()
+    ContextCompat.registerReceiver(this, volumeStopReceiver, IntentFilter("android.media.VOLUME_CHANGED_ACTION"), ContextCompat.RECEIVER_EXPORTED)
+  }
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    when (intent?.action) {
-      ACTION_START -> startRecording(intent)
-      ACTION_PAUSE -> pauseRecording(intent)
-      ACTION_RESUME -> resumeRecording(intent)
-      ACTION_STOP -> stopRecording(intent)
-      ACTION_SET_INPUT_DEVICE -> setInputDevice(intent)
+    if (intent?.action == ACTION_START) {
+      startForeground(1001, notification("正在准备录音"))
+    }
+    commands.execute {
+      val began = android.os.SystemClock.elapsedRealtime()
+      android.util.Log.i(TAG, "command=${intent?.action} start status=${RecordingRuntime.state.value.status}")
+      runCatching {
+        when (intent?.action) {
+          ACTION_START -> startRecording(intent)
+          ACTION_PAUSE -> pauseRecording(intent)
+          ACTION_RESUME -> resumeRecording(intent)
+          ACTION_STOP -> {
+            val expected = intent.getStringExtra(EXTRA_EXPECTED_RECORDING_ID)
+            if (expected == null || expected == currentId) stopRecording(intent)
+          }
+          ACTION_BLUETOOTH_AUDIO_LOST -> {
+            if (intent.getStringExtra(EXTRA_RECORDING_ID) == currentId && recorder != null && currentUseCommunicationRoute) {
+              android.util.Log.w(TAG, "SCO disconnected during recording=$currentId; preserving partial file")
+              stopRecording(null)
+              MandarinVoicePrompt.speak(this, "蓝牙麦克风当前不可用，录音已结束", useVoiceCommunication = false)
+            }
+          }
+          ACTION_SET_INPUT_DEVICE -> setInputDevice(intent)
+        }
+      }.onFailure { error ->
+        android.util.Log.e(TAG, "recording command failed action=${intent?.action}", error)
+        if (intent?.action == ACTION_START) {
+          shouldRecord.set(false)
+          runCatching { recorder?.stop() }
+          runBlocking { recordingJob?.join() }
+          runCatching { recorder?.release() }
+          recorder = null
+          failRecordingStart("开启录音失败。")
+        }
+      }
+      android.util.Log.i(TAG, "command=${intent?.action} elapsedMs=${android.os.SystemClock.elapsedRealtime() - began}")
+      if (recorder == null) stopSelfResult(startId)
     }
     return START_STICKY
   }
@@ -68,7 +135,7 @@ class RecordingService : Service() {
     if (recorder != null) return
     if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
       RecordingRuntime.state.value = RecorderUiState()
-      stopSelf()
+      BluetoothRecordingWorkflow.onRecordingStartFailed(intent?.getStringExtra(EXTRA_RECORDING_ID))
       return
     }
     startForeground(1001, notification("正在准备录音"))
@@ -83,10 +150,6 @@ class RecordingService : Service() {
         else -> appStore.snapshot.value.selectedRecordingDeviceId
       }
     val requireBluetoothInput = intent?.getBooleanExtra(EXTRA_REQUIRE_BLUETOOTH_INPUT, false) == true
-    val announceStartOnBluetoothRoute =
-      intent?.getBooleanExtra(EXTRA_ANNOUNCE_START_ON_BLUETOOTH_ROUTE, false) == true
-    val announceStartOnActiveRoute =
-      intent?.getBooleanExtra(EXTRA_ANNOUNCE_START_ON_ACTIVE_ROUTE, false) == true
     val telecomControlPrewarmed =
       intent?.getBooleanExtra(EXTRA_TELECOM_CONTROL_PREWARMED, false) == true
     var selectedInput = AudioDeviceSelection.findInput(this, requestedInputDeviceId)
@@ -112,6 +175,10 @@ class RecordingService : Service() {
     paused.set(false)
 
     val selectedBluetoothInput = selectedInput?.let(AudioDeviceSelection::isBluetoothInput) == true
+    // Include route preparation in resource ownership so focus release cannot
+    // acknowledge while AudioRecord is still opening the Bluetooth microphone.
+    RecordingRuntime.activeInputIsBluetooth = selectedBluetoothInput
+    if (selectedBluetoothInput) BluetoothRecordingTelecom.observeBluetoothAudio(this)
     val useTelecomBluetoothControl =
       selectedBluetoothInput && shouldUseTelecomBluetoothControl(selectedInput.type)
     currentInputDeviceId = selectedInput?.id
@@ -119,9 +186,16 @@ class RecordingService : Service() {
     currentUseTelecomControl = useTelecomBluetoothControl
     android.util.Log.i(
       TAG,
-      "bluetooth control route inputType=${selectedInput?.type}, telecomFallback=$currentUseTelecomControl",
+      "bluetooth control route mode=${appStore.snapshot.value.bluetoothRecordingControlMode} inputType=${selectedInput?.type}, telecomFallback=$currentUseTelecomControl",
     )
-    currentInputRoute = AudioDeviceSelection.prepareInputRoute(this, selectedInput)
+    // Telecom already owns MODE_IN_CALL and SCO. A second AudioManager request
+    // changes the mode and forces another channel negotiation.
+    val telecomOwnsRoute = currentUseTelecomControl && telecomControlPrewarmed && BluetoothRecordingTelecom.isReady()
+    // Media mode needs continuous playback ownership for AVRCP gestures during
+    // SCO capture. Keep the existing silent track; only Telecom takes ownership
+    // away from MediaSession. Never restart the track just to refresh metadata.
+    if (selectedBluetoothInput && currentUseTelecomControl) BluetoothMediaButtonService.suspendMediaRouteForCommunication(this)
+    currentInputRoute = if (telecomOwnsRoute) null else AudioDeviceSelection.prepareInputRoute(this, selectedInput)
     if (
       selectedBluetoothInput &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -166,6 +240,8 @@ class RecordingService : Service() {
         AudioFormat.ENCODING_PCM_16BIT,
         minBuffer,
       )
+    recorder = nextRecorder // Own the resource before any initialization can fail.
+    check(nextRecorder.state == AudioRecord.STATE_INITIALIZED) { "AudioRecord initialization failed" }
     selectedInput?.let { device ->
       val accepted = nextRecorder.setPreferredDevice(device)
       if (!accepted) {
@@ -173,17 +249,15 @@ class RecordingService : Service() {
       }
     }
 
-    val suppressStartAnnouncement =
-      (selectedBluetoothInput && announceStartOnBluetoothRoute) || announceStartOnActiveRoute
-    paused.set(suppressStartAnnouncement)
     WavAudio.createEmptyWav(file)
     nextRecorder.startRecording()
     if (selectedBluetoothInput && AudioDeviceSelection.waitForBluetoothAudioRecordRoute(nextRecorder) == null) {
-      AudioDeviceSelection.reassertInputRoute(this, selectedInput)
+      if (!telecomOwnsRoute) AudioDeviceSelection.reassertInputRoute(this, selectedInput)
       nextRecorder.setPreferredDevice(selectedInput)
       if (AudioDeviceSelection.waitForBluetoothAudioRecordRoute(nextRecorder) == null) {
         runCatching { nextRecorder.stop() }
         nextRecorder.release()
+        recorder = null
         failRecordingStart("录音输入未切换到蓝牙麦克风，已停止以避免误用手机麦克风")
         return
       }
@@ -191,48 +265,54 @@ class RecordingService : Service() {
     recorder = nextRecorder
     RecordingRuntime.activeInputIsBluetooth = selectedBluetoothInput
     shouldRecord.set(true)
-    recordingJob = serviceScope.launch { writePcmLoop(nextRecorder, file, minBuffer) }
+    if (selectedBluetoothInput) {
+      if (appStore.snapshot.value.bluetoothVolumeStopEnabled) reserveVolumeHeadroom()
+      volumeStopGate.begin(currentId, android.os.SystemClock.elapsedRealtime())
+    }
     RecordingRuntime.state.value =
       RecorderUiState(
         status = RecordingStatus.RECORDING,
         activeFileName = name,
         activeRecordingId = currentId,
       )
-    BluetoothRecordingWorkflow.onRecordingStarted(currentId)
+    recordingJob = serviceScope.launch {
+      runCatching { writePcmLoop(nextRecorder, file, minBuffer) }.onFailure { error ->
+        android.util.Log.e(TAG, "PCM capture failed; preserving partial recording", error)
+        if (shouldRecord.get()) commands.execute {
+          stopRecording(null)
+          MandarinVoicePrompt.speak(this@RecordingService, "录音已结束")
+          stopSelf()
+        }
+      }
+    }
     startForeground(1001, notification("正在录音中"))
     if (currentUseTelecomControl) {
       if (telecomControlPrewarmed) {
-        BluetoothRecordingTelecom.recordingStarted()
+        BluetoothRecordingTelecom.recordingStarted(currentId)
       } else {
-        BluetoothRecordingTelecom.start(this)
+        BluetoothRecordingTelecom.start(this, recordingId = currentId, requiresSco = selectedInput?.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
       }
     }
-    if (suppressStartAnnouncement) {
-      MandarinVoicePrompt.stop()
-      val readinessDeadline = System.currentTimeMillis() + START_PROMPT_READY_WAIT_MS
-      while (!MandarinVoicePrompt.isReady(this) && System.currentTimeMillis() < readinessDeadline) {
-        Thread.sleep(START_PROMPT_READY_POLL_MS)
+    routingListener = AudioRouting.OnRoutingChangedListener { audio ->
+      if (commands.isShutdown) return@OnRoutingChangedListener
+      val routed = audio.routedDevice
+      android.util.Log.i(TAG, "capture route changed id=${routed?.id} type=${routed?.type} bluetoothExpected=$selectedBluetoothInput")
+      if (selectedBluetoothInput && routed != null && !AudioDeviceSelection.isBluetoothInput(routed)) {
+        commands.execute {
+          if (recorder === nextRecorder && shouldRecord.get()) {
+            stopRecording(null)
+            MandarinVoicePrompt.speak(this, "蓝牙麦克风当前不可用，录音已结束", useVoiceCommunication = false)
+            stopSelf()
+          }
+        }
       }
-      if (MandarinVoicePrompt.isReady(this)) {
-        android.util.Log.i(
-          TAG,
-          "playing start announcement on ${if (selectedBluetoothInput) "bluetooth communication" else "system media"} route",
-        )
-        MandarinVoicePrompt.speak(
-          this,
-          "开启录音",
-          useVoiceCommunication = selectedBluetoothInput,
-        )
-        Thread.sleep(START_PROMPT_PLAYBACK_LEAD_MS)
-      } else {
-        android.util.Log.w(TAG, "TTS was not ready for bluetooth start announcement")
-      }
-      paused.set(false)
-      startedAt = System.currentTimeMillis()
-    }
-    if (!currentUseTelecomControl) {
-      BluetoothMediaButtonService.rearm(this)
-    }
+    }.also { nextRecorder.addOnRoutingChangedListener(it, Handler(Looper.getMainLooper())) }
+    val announceStart = (
+      intent?.getBooleanExtra(EXTRA_ANNOUNCE_START_ON_ACTIVE_ROUTE, false) == true ||
+      (selectedBluetoothInput && intent?.getBooleanExtra(EXTRA_ANNOUNCE_START_ON_BLUETOOTH_ROUTE, false) == true)
+    )
+    BluetoothRecordingWorkflow.onRecordingStarted(this, currentId, announceStart, selectedBluetoothInput)
+    if (!selectedBluetoothInput) BluetoothMediaButtonService.rearm(this)
   }
 
   private fun writePcmLoop(active: AudioRecord, file: File, bufferSize: Int) {
@@ -242,6 +322,7 @@ class RecordingService : Service() {
       output.seek(WavAudio.HEADER_SIZE.toLong())
       while (shouldRecord.get()) {
         val count = active.read(buffer, 0, buffer.size)
+        if (count < 0 && shouldRecord.get()) error("AudioRecord read failed: $count")
         if (count > 0) {
           val now = System.currentTimeMillis()
           val activeRecording = !paused.get()
@@ -257,7 +338,7 @@ class RecordingService : Service() {
               } else {
                 (pausedAt - startedAt - pausedTotal).coerceAtLeast(0L)
               }
-            RecordingRuntime.state.value = RecordingRuntime.state.value.copy(inputLevel = nextLevel, elapsedMs = elapsed)
+            RecordingRuntime.state.update { it.copy(inputLevel = nextLevel, elapsedMs = elapsed) }
             lastLevelEmit = now
           }
         }
@@ -313,21 +394,21 @@ class RecordingService : Service() {
       MandarinVoicePrompt.speak(this, BluetoothHeadsetRecordingCommand.RESUME_RECORDING.voicePrompt)
     }
     BluetoothMediaButtonService.rearm(this)
-    serviceScope.launch {
-      delay(POST_PROMPT_ROUTE_REASSERT_MS)
-      reassertCurrentInputRoute()
-    }
   }
 
   private fun stopRecording(intent: Intent?) {
     val active = recorder ?: return
+    volumeStopGate.clear(currentId)
+    restoreReservedVolume()
     val keepInputRouteMs = intent?.getLongExtra(EXTRA_KEEP_INPUT_ROUTE_MS, 0L)?.coerceAtLeast(0L) ?: 0L
     val voicePrompt = intent?.getStringExtra(EXTRA_VOICE_PROMPT).orEmpty()
-    val fromTelecom = intent?.getBooleanExtra(EXTRA_FROM_TELECOM, false) == true
     shouldRecord.set(false)
+    routingListener?.let { active.removeOnRoutingChangedListener(it) }
+    routingListener = null
     runCatching { active.stop() }
-    active.release()
     runBlocking { recordingJob?.join() }
+    currentFile?.let { file -> RandomAccessFile(file, "rw").use { WavAudio.updateHeader(it, bytesWritten) } }
+    active.release()
     recorder = null
 
     val file = currentFile
@@ -358,31 +439,31 @@ class RecordingService : Service() {
     RecordingRuntime.state.value = RecorderUiState()
     RecordingRuntime.activeInputIsBluetooth = false
     stopForeground(STOP_FOREGROUND_REMOVE)
-    if (!fromTelecom) {
-      BluetoothRecordingTelecom.endFromApp()
-    }
-    // BluetoothRecordingWorkflow owns the HFP -> A2DP transition after a
-    // headset/Telecom stop. Restarting the silent media track here as well
-    // creates competing AudioTracks and makes the route oscillate.
-    if (!fromTelecom) {
-      BluetoothMediaButtonService.rearm(this)
-    }
-    serviceScope.launch {
-      if (voicePrompt.isNotBlank()) {
-        MandarinVoicePrompt.speak(this@RecordingService, voicePrompt)
+    // Finalize the file and release the old route before arming upload. Fixed
+    // delays could start uploading before the WAV header and local item existed.
+    if (voicePrompt.isNotBlank()) MandarinVoicePrompt.speak(this, voicePrompt)
+    if (keepInputRouteMs > 0) Thread.sleep(keepInputRouteMs)
+    AudioDeviceSelection.restoreInputRoute(this, currentInputRoute)
+    currentInputRoute = null
+    currentInputDeviceId = null
+    currentUseCommunicationRoute = false
+    currentUseTelecomControl = false
+    BluetoothRecordingTelecom.endFromApp(currentId)
+    BluetoothRecordingWorkflow.onRecordingFinalized(this, currentId)
+    BluetoothMediaButtonService.rearm(this)
+  }
+
+  override fun onDestroy() {
+    unregisterReceiver(volumeStopReceiver)
+    commands.execute {
+      try {
+        if (recorder != null) stopRecording(null)
+      } finally {
+        serviceScope.cancel()
       }
-      delay(keepInputRouteMs)
-      AudioDeviceSelection.restoreInputRoute(this@RecordingService, currentInputRoute)
-      currentInputRoute = null
-      currentInputDeviceId = null
-      currentUseCommunicationRoute = false
-      currentUseTelecomControl = false
-      if (!fromTelecom) {
-        delay(800L)
-        BluetoothMediaButtonService.rearm(this@RecordingService)
-      }
-      stopSelf()
     }
+    commands.shutdown()
+    super.onDestroy()
   }
 
   private fun notification(text: String): Notification {
@@ -426,14 +507,14 @@ class RecordingService : Service() {
       AudioDeviceSelection.reassertInputRoute(this, nextDevice)
     }
     if (currentUseTelecomControl) {
-      BluetoothRecordingTelecom.start(this)
+      BluetoothRecordingTelecom.start(this, recordingId = currentId, requiresSco = nextDevice?.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
     } else {
       BluetoothRecordingTelecom.endFromApp()
     }
   }
 
   private fun reassertCurrentInputRoute() {
-    if (!currentUseCommunicationRoute) return
+    if (!currentUseCommunicationRoute || BluetoothRecordingTelecom.isReady()) return
     val selectedInput = AudioDeviceSelection.findInput(this, currentInputDeviceId)
     AudioDeviceSelection.reassertInputRoute(this, selectedInput)
     selectedInput?.let { device -> recorder?.preferredDevice = device }
@@ -446,6 +527,8 @@ class RecordingService : Service() {
     )
 
   private fun failRecordingStart(message: String) {
+    volumeStopGate.clear(currentId)
+    restoreReservedVolume()
     android.util.Log.e(TAG, message)
     BluetoothRecordingWorkflow.onRecordingStartFailed(currentId.takeIf { it.isNotBlank() })
     if (currentUseTelecomControl) {
@@ -463,7 +546,35 @@ class RecordingService : Service() {
     stopForeground(STOP_FOREGROUND_REMOVE)
     MandarinVoicePrompt.speak(this, message)
     BluetoothMediaButtonService.rearm(this)
-    stopSelf()
+  }
+
+  private fun reserveVolumeHeadroom() {
+    runCatching {
+      val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+      val current = audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+      val target = BluetoothVolumeStopGate.withHeadroom(current, audio.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL))
+      if (target != current) {
+        originalCallVolume = current
+        reservedCallVolume = target
+        audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
+        android.util.Log.i(TAG, "reserved volume-up gesture headroom $current->$target recording=$currentId")
+      }
+    }.onFailure { android.util.Log.w(TAG, "unable to reserve call volume headroom", it) }
+  }
+
+  private fun restoreReservedVolume() {
+    val original = originalCallVolume
+    val reserved = reservedCallVolume
+    originalCallVolume = null
+    reservedCallVolume = null
+    if (original == null || reserved == null) return
+    runCatching {
+      val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+      // Restore only our temporary adjustment; retain any explicit user changes.
+      if (audio.getStreamVolume(AudioManager.STREAM_VOICE_CALL) == reserved) {
+        audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, original, 0)
+      }
+    }.onFailure { android.util.Log.w(TAG, "unable to restore reserved call volume", it) }
   }
 
   companion object {
@@ -471,9 +582,23 @@ class RecordingService : Service() {
     const val ACTION_PAUSE = "com.vibecodingjapan.ideavox.record.PAUSE"
     const val ACTION_RESUME = "com.vibecodingjapan.ideavox.record.RESUME"
     const val ACTION_STOP = "com.vibecodingjapan.ideavox.record.STOP"
+    private const val ACTION_BLUETOOTH_AUDIO_LOST = "com.vibecodingjapan.ideavox.record.BLUETOOTH_AUDIO_LOST"
+
+    fun onBluetoothAudioLost(context: android.content.Context, recordingId: String?) {
+      if (recordingId == null) return
+      Handler(Looper.getMainLooper()).postDelayed({
+        if (!BluetoothRecordingTelecom.isScoAudioConnected() && RecordingRuntime.activeInputIsBluetooth && RecordingRuntime.state.value.activeRecordingId == recordingId) {
+          context.applicationContext.startService(
+            Intent(context.applicationContext, RecordingService::class.java)
+              .setAction(ACTION_BLUETOOTH_AUDIO_LOST).putExtra(EXTRA_RECORDING_ID, recordingId)
+          )
+        }
+      }, 300L)
+    }
     const val ACTION_SET_INPUT_DEVICE = "com.vibecodingjapan.ideavox.record.SET_INPUT_DEVICE"
     const val EXTRA_INPUT_DEVICE_ID = "inputDeviceId"
     const val EXTRA_RECORDING_ID = "recordingId"
+    const val EXTRA_EXPECTED_RECORDING_ID = "expectedRecordingId"
     const val EXTRA_REQUIRE_BLUETOOTH_INPUT = "requireBluetoothInput"
     const val EXTRA_USE_SYSTEM_DEFAULT_INPUT = "useSystemDefaultInput"
     const val EXTRA_ANNOUNCE_START_ON_BLUETOOTH_ROUTE = "announceStartOnBluetoothRoute"
@@ -487,10 +612,6 @@ class RecordingService : Service() {
     const val EXTRA_KEEP_INPUT_ROUTE_MS = "keepInputRouteMs"
     const val EXTRA_VOICE_PROMPT = "voicePrompt"
     const val EXTRA_FROM_TELECOM = "fromTelecom"
-    private const val POST_PROMPT_ROUTE_REASSERT_MS = 900L
-    private const val START_PROMPT_READY_WAIT_MS = 1_000L
-    private const val START_PROMPT_READY_POLL_MS = 50L
-    private const val START_PROMPT_PLAYBACK_LEAD_MS = 1_200L
     private const val TAG = "IdeavoxRecording"
   }
 }

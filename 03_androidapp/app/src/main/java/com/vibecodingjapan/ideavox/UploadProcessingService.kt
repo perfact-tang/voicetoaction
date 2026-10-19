@@ -75,7 +75,10 @@ class UploadProcessingService : Service() {
               originals = appStore.snapshot.value.recordings.filter { it.id in ids }
               process(ids, format, speed, language, mode)
             }
-            .onSuccess { uploaded -> showUploadSuccessNotification(uploaded) }
+            .onSuccess { uploaded ->
+              if (applyBluetoothDefaults) BluetoothRecordingWorkflow.announceAutomaticUploadSuccess(applicationContext)
+              showUploadSuccessNotification(uploaded)
+            }
             .onFailure { error ->
               val message = if (error is CancellationException) "已取消" else error.message ?: "处理失败"
               restoreOriginalRecordings(originals, message)

@@ -138,6 +138,9 @@ internal object IdeavoxTranslations {
       "录音中" to t("録音中", "Recording", "녹음 중"),
       "正在准备录音" to t("録音を準備中", "Preparing to record", "녹음 준비 중"),
       "开启录音" to t("録音開始", "Start recording", "녹음 시작"),
+      "录音中调高通话音量结束" to t("通話音量を上げて録音終了", "Stop recording on call volume up", "통화 음량을 높여 녹음 종료"),
+      "眼镜左侧前滑增大音量：结束并倒计时。手机通话音量键也可能触发。满音量时自动预留一档；仅蓝牙麦克风录音时生效。" to t("眼鏡の左側を前にスワイプして音量を上げると、録音を終了してカウントダウンします。スマートフォンの通話音量キーでも動作する場合があります。最大音量の場合は自動で1段下げます。Bluetoothマイクでの録音時のみ有効です。", "Swipe forward on the left temple to raise the volume, end recording and start the countdown. Phone call-volume keys may also trigger it. At maximum volume, one step is reserved automatically. Applies only to Bluetooth microphone recording.", "안경 왼쪽을 앞으로 밀어 음량을 높이면 녹음을 종료하고 카운트다운합니다. 휴대폰 통화 음량 키로도 작동할 수 있습니다. 최대 음량에서는 자동으로 한 단계를 확보합니다. Bluetooth 마이크 녹음 중에만 적용됩니다."),
+      "录音已保存，蓝牙控制尚未恢复，请在手机上传。" to t("録音を保存しました。Bluetooth操作が復帰していないため、スマートフォンからアップロードしてください。", "Recording saved. Bluetooth controls have not recovered; please upload from your phone.", "녹음이 저장되었습니다. Bluetooth 제어가 복구되지 않았으므로 휴대폰에서 업로드해 주세요."),
       "录音已开启" to t("録音を開始しました", "Recording started", "녹음을 시작했습니다"),
       "录音已暂停" to t("録音を一時停止しました", "Recording paused", "녹음이 일시정지되었습니다"),
       "录音继续" to t("録音を再開しました", "Recording resumed", "녹음을 다시 시작했습니다"),
@@ -175,6 +178,7 @@ internal object IdeavoxTranslations {
         t("通話操作モード：通話キーを「録音／確認」に統一し、録音の一時停止には使いません。", "Call-control mode: The headset call button acts as Record / Confirm and no longer pauses recording.", "통화 제어 모드: 통화 키를 ‘녹음 / 확인’으로 사용하며 녹음을 일시정지하지 않습니다."),
       "自动：新型 BLE 双向音频使用媒体按键；经典 SCO/HFP 麦克风模式同时启用通话挂断兜底。" to
         t("自動：BLE双方向音声ではメディアキーを使い、SCO/HFPでは通話終了操作も予備として有効にします。", "Automatic: BLE two-way audio uses media keys; SCO/HFP also enables call hang-up as a fallback.", "자동: BLE 양방향 오디오는 미디어 키를 사용하고 SCO/HFP는 통화 종료도 예비로 사용합니다."),
+      "我在" to t("はい", "Ready", "네"),
       "已监测到操作，3秒内再按一下，开启录音。三，二，一" to
         t("操作を検出しました。3秒以内にもう一度押すと録音を開始します。3、2、1", "Action detected. Press again within three seconds to start recording. Three, two, one", "동작을 감지했습니다. 3초 안에 다시 누르면 녹음을 시작합니다. 삼, 이, 일"),
       "录音已结束，10秒内再按一下，触发自动上传。十" to
@@ -205,6 +209,7 @@ internal object IdeavoxTranslations {
       "准备逐条上传" to t("個別アップロードを準備中", "Preparing separate uploads", "개별 업로드 준비 중"),
       "正在取消" to t("キャンセル中", "Cancelling", "취소 중"),
       "已取消" to t("キャンセルしました", "Cancelled", "취소됨"),
+      "自动上传成功" to t("自動アップロードが完了しました", "Automatic upload successful", "자동 업로드가 완료되었습니다"),
       "上传成功" to t("アップロード完了", "Upload successful", "업로드 성공"),
       "上传失败" to t("アップロード失敗", "Upload failed", "업로드 실패"),
       "处理失败" to t("処理失敗", "Processing failed", "처리 실패"),

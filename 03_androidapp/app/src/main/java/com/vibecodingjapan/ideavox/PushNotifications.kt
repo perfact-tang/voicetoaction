@@ -146,7 +146,11 @@ object PushNotifications {
         .build()
 
     val id = (data["documentId"] ?: title).hashCode()
-    runCatching { manager.notify(id, notification) }
+    try {
+      manager.notify(id, notification)
+    } catch (_: SecurityException) {
+      // Notification permission may be revoked after the earlier check.
+    }
   }
 }
 

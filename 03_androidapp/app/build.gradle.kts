@@ -10,6 +10,7 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "com.vibecodingjapan.ideavox"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

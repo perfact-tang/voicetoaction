@@ -5,6 +5,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BluetoothGestureStateMachineTest {
+  @Test fun timedOutPreparationDoesNotDisableSubsequentPressesForever() {
+    val next = BluetoothGestureStateMachine.onTrigger(
+      BluetoothGesturePhase.StartingRecording("old", 12000), RecordingStatus.IDLE, null, "new", 12001,
+    )
+    assertEquals(BluetoothGestureEffect.ArmRecordingStart, next.effect)
+    assertEquals(BluetoothGesturePhase.AwaitingStartConfirmation(17001), next.phase)
+    assertEquals(next.phase, BluetoothGestureStateMachine.onRecordingStarted(next.phase, "old").phase)
+  }
+
+  @Test fun duplicateHangupCannotConfirmUploadWhileSavingOrAfterSaving() {
+    val stop = BluetoothGestureStateMachine.onTelecomEnd(BluetoothGesturePhase.Idle, RecordingStatus.RECORDING, "r1", "r1")
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("r1"), stop.effect)
+    val duplicate = BluetoothGestureStateMachine.onTelecomEnd(stop.phase, RecordingStatus.RECORDING, "r1", "r1")
+    assertEquals(BluetoothGestureEffect.Ignore, duplicate.effect)
+    assertEquals(BluetoothGesturePhase.PreparingUploadConfirmation("r1"), duplicate.phase)
+    val saved = BluetoothGestureStateMachine.onRecordingFinalized(duplicate.phase, "r1", 1000)
+    assertEquals(BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 11000), saved.phase)
+    val late = BluetoothGestureStateMachine.onTelecomEnd(saved.phase, RecordingStatus.IDLE, null, "r1")
+    assertEquals(saved.phase, late.phase)
+    assertEquals(BluetoothGestureEffect.Ignore, late.effect)
+  }
+
+  @Test fun previousCallCannotStopSecondRecordingOrArmNewConfirmation() {
+    val recording = BluetoothGestureStateMachine.onTelecomEnd(BluetoothGesturePhase.Idle, RecordingStatus.RECORDING, "r2", "r1")
+    assertEquals(BluetoothGestureEffect.Ignore, recording.effect)
+    val idle = BluetoothGestureStateMachine.onTelecomEnd(BluetoothGesturePhase.Idle, RecordingStatus.IDLE, null, "r1")
+    assertEquals(BluetoothGesturePhase.Idle, idle.phase)
+    assertEquals(BluetoothGestureEffect.Ignore, idle.effect)
+    val second = BluetoothGestureStateMachine.onTelecomEnd(recording.phase, RecordingStatus.RECORDING, "r2", "r2")
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("r2"), second.effect)
+  }
+
+  @Test fun hangupDuringPreparationOnlyTargetsThatRecording() {
+    val phase = BluetoothGesturePhase.StartingRecording("r2", 12000)
+    assertEquals(phase, BluetoothGestureStateMachine.onTelecomEnd(phase, RecordingStatus.IDLE, null, "r1").phase)
+    val queued = BluetoothGestureStateMachine.onTelecomEnd(phase, RecordingStatus.IDLE, null, "r2")
+    assertEquals(phase.copy(stopRequested = true), queued.phase)
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("r2"), BluetoothGestureStateMachine.onRecordingStarted(queued.phase, "r2").effect)
+  }
+
   @Test
   fun automatedRecordingUsesSystemDefaultWhenBluetoothIsAbsent() {
     assertEquals(
@@ -35,7 +75,7 @@ class BluetoothGestureStateMachineTest {
   }
 
   @Test
-  fun idleFirstPressArmsAndSecondPressStartsWithinThreeSeconds() {
+  fun idleFirstPressArmsAndSecondPressStartsWithinFiveSeconds() {
     val first =
       BluetoothGestureStateMachine.onTrigger(
         phase = BluetoothGesturePhase.Idle,
@@ -52,7 +92,7 @@ class BluetoothGestureStateMachineTest {
         recordingStatus = RecordingStatus.IDLE,
         activeRecordingId = null,
         nextRecordingId = "r1",
-        now = 3_999L,
+        now = 5_999L,
       )
     assertEquals(BluetoothGestureEffect.StartRecording("r1"), second.effect)
   }
@@ -106,7 +146,7 @@ class BluetoothGestureStateMachineTest {
   }
 
   @Test
-  fun uploadPressIsIgnoredUntilBluetoothMediaRouteIsReady() {
+  fun uploadPressIsRememberedUntilFileFinalization() {
     val phase = BluetoothGesturePhase.PreparingUploadConfirmation("active")
     val next =
       BluetoothGestureStateMachine.onTrigger(
@@ -118,7 +158,7 @@ class BluetoothGestureStateMachineTest {
       )
 
     assertEquals(BluetoothGestureEffect.Ignore, next.effect)
-    assertEquals(phase, next.phase)
+    assertEquals(phase.copy(uploadRequested = true), next.phase)
   }
 
   @Test
@@ -142,7 +182,7 @@ class BluetoothGestureStateMachineTest {
   }
 
   @Test
-  fun startingPhaseIgnoresRepeatedPressUntilRecorderReportsStarted() {
+  fun startingPhaseRemembersStopUntilRecorderReportsStarted() {
     val phase = BluetoothGesturePhase.StartingRecording("r1", expiresAt = 20_000L)
     val next =
       BluetoothGestureStateMachine.onTrigger(
@@ -154,6 +194,28 @@ class BluetoothGestureStateMachineTest {
       )
 
     assertEquals(BluetoothGestureEffect.Ignore, next.effect)
-    assertEquals(phase, next.phase)
+    assertEquals(phase.copy(stopRequested = true), next.phase)
   }
+  @Test fun queuedStopExecutesWhenRecordingStarts() {
+    val phase = BluetoothGesturePhase.StartingRecording("r1", 20000, stopRequested = true)
+    val next = BluetoothGestureStateMachine.onRecordingStarted(phase, "r1")
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("r1"), next.effect)
+    assertEquals(BluetoothGesturePhase.PreparingUploadConfirmation("r1"), next.phase)
+  }
+
+  @Test fun queuedUploadExecutesOnlyAfterMatchingFileFinalizes() {
+    val phase = BluetoothGesturePhase.PreparingUploadConfirmation("r1", uploadRequested = true)
+    assertEquals(phase, BluetoothGestureStateMachine.onRecordingFinalized(phase, "old", 1000).phase)
+    val next = BluetoothGestureStateMachine.onRecordingFinalized(phase, "r1", 1000)
+    assertEquals(BluetoothGestureEffect.StartAutomaticUpload("r1"), next.effect)
+    assertEquals(BluetoothGesturePhase.Idle, next.phase)
+    assertEquals(BluetoothGestureEffect.Ignore, BluetoothGestureStateMachine.onRecordingFinalized(next.phase, "r1", 1001).effect)
+  }
+
+  @Test fun uploadWindowStartsAtFinalizationAndStaleStartDoesNotEraseIt() {
+    val next = BluetoothGestureStateMachine.onRecordingFinalized(BluetoothGesturePhase.PreparingUploadConfirmation("r1"), "r1", 5000)
+    assertEquals(BluetoothGesturePhase.AwaitingUploadConfirmation("r1", 15000), next.phase)
+    assertEquals(next.phase, BluetoothGestureStateMachine.onRecordingStarted(next.phase, "old").phase)
+  }
+
 }

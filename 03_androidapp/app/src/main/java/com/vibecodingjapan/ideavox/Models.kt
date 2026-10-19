@@ -95,6 +95,7 @@ data class LocalSnapshot(
   val selectedUploadOutputFormat: UploadOutputFormat = UploadOutputFormat.AAC_M4A,
   val bluetoothRecordingControlMode: BluetoothRecordingControlMode = BluetoothRecordingControlMode.AUTO,
   val bluetoothHeadsetControlMonitoringEnabled: Boolean = true,
+  val bluetoothVolumeStopEnabled: Boolean = false,
   val bluetoothDefaultAICalling: AICallingItem? = null,
   val bluetoothDefaultUploadLanguage: ReaderLanguage = ReaderLanguage.ZH,
   val bluetoothDefaultUploadSpeed: Float = 1.0f,

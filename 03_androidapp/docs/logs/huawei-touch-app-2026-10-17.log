@@ -1,0 +1,187 @@
+23:27:03.794 +12ms [准备] SESSION begin — touch events are observations only; audio samples are discarded
+23:27:03.799 +16ms [媒体 A2DP] PHASE 媒体 A2DP
+23:27:03.802 +19ms [媒体 A2DP] READY media; try all gestures repeatedly
+23:27:06.935 +3152ms [媒体 A2DP] VENDOR command=+IPHONEACCEV type=2 args=[1, 1, 3]
+23:27:56.170 +52387ms [媒体 A2DP] MARK MEDIA_ROUND_START
+23:28:41.461 +97679ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:41.485 +97702ms [媒体 A2DP] KEY KEYCODE_MEDIA_PAUSE action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:41.495 +97712ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:41.501 +97718ms [媒体 A2DP] KEY KEYCODE_MEDIA_PAUSE action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:45.753 +101970ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:45.765 +101982ms [媒体 A2DP] KEY KEYCODE_MEDIA_NEXT action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:45.780 +101997ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:45.785 +102002ms [媒体 A2DP] KEY KEYCODE_MEDIA_NEXT action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:50.279 +106497ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:50.291 +106508ms [媒体 A2DP] KEY KEYCODE_MEDIA_PREVIOUS action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:50.305 +106522ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:50.310 +106526ms [媒体 A2DP] KEY KEYCODE_MEDIA_PREVIOUS action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:54.901 +111119ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:54.922 +111140ms [媒体 A2DP] KEY KEYCODE_MEDIA_PAUSE action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:54.940 +111156ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:54.945 +111161ms [媒体 A2DP] KEY KEYCODE_MEDIA_PAUSE action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:57.165 +113383ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:57.186 +113404ms [媒体 A2DP] KEY KEYCODE_MEDIA_NEXT action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:57.202 +113419ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:57.208 +113424ms [媒体 A2DP] KEY KEYCODE_MEDIA_NEXT action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:59.881 +116099ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:59.903 +116120ms [媒体 A2DP] KEY KEYCODE_MEDIA_PREVIOUS action=0 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:28:59.909 +116126ms [媒体 A2DP] CALLBACK MediaSession.onMediaButtonEvent
+23:28:59.915 +116132ms [媒体 A2DP] KEY KEYCODE_MEDIA_PREVIOUS action=1 repeat=0 long=false device=-1 source=0 downAt=0 eventAt=0
+23:29:20.578 +136795ms [媒体 A2DP] MARK MEDIA_ROUND_END
+23:29:20.612 +136829ms [媒体 A2DP] EXPORTED touch-latest.log
+23:29:38.235 +154452ms [蓝牙麦克风 SCO] PHASE 蓝牙麦克风 SCO
+23:29:38.763 +154980ms [蓝牙麦克风 SCO] MEDIA route id=2, type=1, name=25080RABDR
+23:29:38.790 +155007ms [蓝牙麦克风 SCO] VOLUME stream=8 value=12 previous=11
+23:29:39.029 +155245ms [蓝牙麦克风 SCO] HFP action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=12 previous=10
+23:29:39.611 +155831ms [蓝牙麦克风 SCO] MEDIA route id=8733, type=7, name=HUAWEI Eyewear 2
+23:29:39.698 +155915ms [蓝牙麦克风 SCO] READY actual Bluetooth microphone id=8735; samples discarded
+23:29:39.700 +155917ms [蓝牙麦克风 SCO] CAPTURE route id=8735 type=7
+23:29:39.729 +155946ms [蓝牙麦克风 SCO] CAPTURE alive samples=960 peak=0
+23:29:42.730 +158948ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=195
+23:29:45.748 +161966ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=26
+23:29:48.762 +164980ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=34
+23:29:51.770 +167989ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=3215
+23:29:54.780 +170998ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=376
+23:29:57.794 +174013ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=5414
+23:30:00.808 +177025ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=2315
+23:30:03.811 +180030ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=5399
+23:30:06.635 +182852ms [蓝牙麦克风 SCO] VENDOR command=+IPHONEACCEV type=2 args=[1, 1, 3]
+23:30:06.817 +183035ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=28
+23:30:09.835 +186053ms [蓝牙麦克风 SCO] CAPTURE alive samples=640 peak=181
+23:30:12.831 +189049ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=73
+23:30:15.853 +192072ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=30
+23:30:18.860 +195077ms [蓝牙麦克风 SCO] CAPTURE alive samples=640 peak=128
+23:30:21.859 +198077ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=65
+23:30:24.879 +201097ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=8
+23:30:27.891 +204109ms [蓝牙麦克风 SCO] CAPTURE alive samples=640 peak=9
+23:30:30.902 +207120ms [蓝牙麦克风 SCO] CAPTURE alive samples=640 peak=23
+23:30:33.910 +210128ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=115
+23:30:36.928 +213146ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=23
+23:30:39.941 +216159ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=93
+23:30:42.957 +219176ms [蓝牙麦克风 SCO] CAPTURE alive samples=640 peak=13
+23:30:45.954 +222173ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=13
+23:30:48.961 +225179ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=73
+23:30:51.972 +228190ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=9
+23:30:54.982 +231200ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=68
+23:30:58.009 +234227ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=31
+23:31:01.023 +237242ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=14
+23:31:04.039 +240257ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=18
+23:31:07.046 +243264ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=15
+23:31:10.064 +246282ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=457
+23:31:13.079 +249297ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=20
+23:31:16.100 +252319ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=157
+23:31:19.117 +255334ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=8
+23:31:22.138 +258356ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=18
+23:31:25.152 +261370ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=10
+23:31:28.161 +264379ms [蓝牙麦克风 SCO] CAPTURE alive samples=320 peak=9
+23:31:30.804 +267021ms [蓝牙麦克风 SCO] MARK SCO_ROUND_END
+23:31:30.849 +267065ms [蓝牙麦克风 SCO] EXPORTED touch-latest.log
+23:31:30.939 +267156ms [蓝牙麦克风 SCO] CAPTURE released
+23:31:30.960 +267177ms [Telecom 通话] PHASE Telecom 通话
+23:31:31.004 +267221ms [Telecom 通话] HFP action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=10 previous=12
+23:31:31.043 +267260ms [Telecom 通话] MEDIA route id=none, type=none, name=none
+23:31:31.343 +267560ms [Telecom 通话] TELECOM state=4
+23:31:31.493 +267710ms [Telecom 通话] TELECOM endpoint type=2 name=HUAWEI Eyewear 2
+23:31:31.523 +267739ms [Telecom 通话] TELECOM onMuteStateChanged=false
+23:31:31.587 +267804ms [Telecom 通话] TELECOM audio route=2 muted=false supported=11
+23:31:31.634 +267851ms [Telecom 通话] TELECOM onCallEvent=android.telecom.event.BLUETOOTH_CALL_QUALITY_REPORT
+23:31:31.764 +267981ms [Telecom 通话] HFP action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=12 previous=10
+23:31:31.816 +268033ms [Telecom 通话] TELECOM endpoint type=2 name=HUAWEI Eyewear 2
+23:31:31.844 +268061ms [Telecom 通话] TELECOM onMuteStateChanged=false
+23:31:31.876 +268093ms [Telecom 通话] TELECOM audio route=2 muted=false supported=11
+23:31:31.903 +268120ms [Telecom 通话] READY actual Bluetooth microphone id=8735; samples discarded
+23:31:31.908 +268125ms [Telecom 通话] CAPTURE route id=8735 type=7
+23:31:31.910 +268127ms [Telecom 通话] CAPTURE alive samples=960 peak=0
+23:31:32.380 +268597ms [Telecom 通话] TELECOM endpoint type=2 name=HUAWEI Eyewear 2
+23:31:32.407 +268624ms [Telecom 通话] TELECOM onMuteStateChanged=false
+23:31:32.435 +268652ms [Telecom 通话] TELECOM audio route=2 muted=false supported=11
+23:31:32.831 +269047ms [Telecom 通话] VOLUME stream=8 value=14 previous=9
+23:31:34.913 +271132ms [Telecom 通话] CAPTURE alive samples=640 peak=9
+23:31:37.911 +274128ms [Telecom 通话] CAPTURE alive samples=320 peak=9
+23:31:40.923 +277141ms [Telecom 通话] CAPTURE alive samples=320 peak=6
+23:31:43.923 +280141ms [Telecom 通话] CAPTURE alive samples=320 peak=15
+23:31:46.942 +283160ms [Telecom 通话] CAPTURE alive samples=320 peak=11
+23:31:49.941 +286159ms [Telecom 通话] CAPTURE alive samples=320 peak=10
+23:31:52.745 +288962ms [Telecom 通话] TELECOM onDisconnect (observed; diagnostic route retained)
+23:31:52.949 +289167ms [Telecom 通话] CAPTURE alive samples=320 peak=10
+23:31:55.962 +292180ms [Telecom 通话] CAPTURE alive samples=320 peak=4
+23:31:57.766 +293983ms [Telecom 通话] TELECOM onDisconnect (observed; diagnostic route retained)
+23:31:58.977 +295195ms [Telecom 通话] CAPTURE alive samples=640 peak=6504
+23:32:00.836 +297054ms [Telecom 通话] TELECOM endpoint type=2 name=HUAWEI Eyewear 2
+23:32:00.876 +297093ms [Telecom 通话] TELECOM onMuteStateChanged=false
+23:32:00.892 +297108ms [Telecom 通话] TELECOM audio route=2 muted=false supported=11
+23:32:00.919 +297136ms [Telecom 通话] TELECOM endpoint type=2 name=HUAWEI Eyewear 2
+23:32:00.934 +297151ms [Telecom 通话] TELECOM onMuteStateChanged=false
+23:32:00.949 +297166ms [Telecom 通话] TELECOM audio route=2 muted=false supported=11
+23:32:00.971 +297188ms [Telecom 通话] HFP action=android.bluetooth.headset.profile.action.AUDIO_STATE_CHANGED state=10 previous=12
+23:32:00.985 +297202ms [Telecom 通话] TELECOM onDisconnect (observed; diagnostic route retained)
+23:32:01.978 +298196ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:04.983 +301201ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:07.991 +304209ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:10.157 +306374ms [Telecom 通话] MARK TELECOM_GESTURE_ROUND_START
+23:32:10.997 +307214ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:14.042 +310261ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:17.051 +313269ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:20.072 +316291ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:23.091 +319309ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:26.113 +322331ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:29.113 +325330ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:32.119 +328337ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:35.137 +331356ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:38.156 +334375ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:41.168 +337386ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:44.187 +340405ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:32:47.208 +343426ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:50.214 +346432ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:53.133 +349350ms [Telecom 通话] VOLUME stream=10 value=7 previous=6
+23:32:53.171 +349388ms [Telecom 通话] VOLUME stream=9 value=6 previous=5
+23:32:53.186 +349402ms [Telecom 通话] VOLUME stream=3 value=6 previous=5
+23:32:53.232 +349449ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:54.370 +350587ms [Telecom 通话] VOLUME stream=10 value=6 previous=7
+23:32:54.407 +350624ms [Telecom 通话] VOLUME stream=9 value=5 previous=6
+23:32:54.429 +350646ms [Telecom 通话] VOLUME stream=3 value=5 previous=6
+23:32:56.254 +352471ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:32:59.272 +355490ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:02.279 +358497ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:04.623 +360840ms [Telecom 通话] VOLUME stream=10 value=5 previous=6
+23:33:04.659 +360876ms [Telecom 通话] VOLUME stream=9 value=4 previous=5
+23:33:04.672 +360889ms [Telecom 通话] VOLUME stream=3 value=4 previous=5
+23:33:05.302 +361519ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:08.312 +364530ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:11.325 +367544ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:14.335 +370553ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:17.347 +373565ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:20.380 +376598ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:23.400 +379618ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:26.406 +382624ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:29.407 +385625ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:32.413 +388631ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:35.431 +391649ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:38.444 +394662ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:41.459 +397677ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:44.466 +400684ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:47.470 +403689ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:50.487 +406705ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:53.497 +409715ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:33:56.503 +412721ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:33:59.520 +415738ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:02.553 +418772ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:05.560 +421778ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:34:08.574 +424794ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:11.583 +427801ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:14.603 +430821ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:17.604 +433822ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:20.622 +436840ms [Telecom 通话] CAPTURE alive samples=640 peak=0
+23:34:23.630 +439847ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:26.651 +442869ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:29.672 +445890ms [Telecom 通话] CAPTURE alive samples=320 peak=0
+23:34:31.542 +447759ms [Telecom 通话] MARK TELECOM_ROUND_END
+23:34:31.587 +447804ms [Telecom 通话] EXPORTED touch-latest.log
+23:34:31.639 +447856ms [Telecom 通话] TELECOM state=6
+23:34:31.640 +447857ms [Telecom 通话] CAPTURE released
+23:34:31.681 +447898ms [媒体 A2DP] PHASE 媒体 A2DP
+23:34:31.695 +447912ms [媒体 A2DP] READY media; try all gestures repeatedly
+23:34:31.791 +448008ms [媒体 A2DP] MEDIA route id=8980, type=8, name=HUAWEI Eyewear 2
+23:34:32.435 +448652ms [媒体 A2DP] VENDOR command=+IPHONEACCEV type=2 args=[1, 1, 3]
+23:34:49.884 +466101ms [媒体 A2DP] VENDOR command=+IPHONEACCEV type=2 args=[1, 1, 2]
+23:36:32.171 +568388ms [媒体 A2DP] SESSION closing

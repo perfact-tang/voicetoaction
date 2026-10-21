@@ -24,15 +24,44 @@ object AudioDeviceSelection {
   fun builtInMic(context: Context): AudioDeviceInfo? =
     inputDevices(context).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
 
+  /**
+   * Pick the pinned device first, then the preferred name, then any Bluetooth
+   * input. The pinned device keeps priority while it is still present, even if
+   * another headset connected later and became the active media route.
+   */
+  fun findBluetoothInput(
+    context: Context,
+    preferredDeviceId: Int?,
+    preferredProductName: String?,
+  ): AudioDeviceInfo? =
+    pickBluetoothInput(
+      inputDevices(context).filter(::isBluetoothInput),
+      preferredDeviceId,
+      preferredProductName,
+    )
+
   fun bluetoothInput(
     context: Context,
     preferredProductName: String? = null,
+    preferredDeviceId: Int? = null,
   ): AudioDeviceInfo? {
     val devices = inputDevices(context).filter(::isBluetoothInput)
-    val preferredName = preferredProductName.normalizedDeviceName()
-    return devices.firstOrNull { it.productName?.toString().normalizedDeviceName() == preferredName && preferredName != null }
+    return pickBluetoothInput(devices, preferredDeviceId, preferredProductName)
       ?: devices.firstOrNull()
   }
+
+  private fun pickBluetoothInput(
+    devices: List<AudioDeviceInfo>,
+    preferredDeviceId: Int?,
+    preferredProductName: String?,
+  ): AudioDeviceInfo? =
+    AudioDevicePriority.pick(
+      devices = devices,
+      preferredDeviceId = preferredDeviceId,
+      preferredProductName = preferredProductName,
+      idOf = { it.id },
+      nameOf = { it.productName?.toString() },
+    )
 
   fun bluetoothOutput(
     context: Context,
@@ -48,11 +77,12 @@ object AudioDeviceSelection {
   fun waitForBluetoothInput(
     context: Context,
     preferredProductName: String?,
+    preferredDeviceId: Int? = null,
     timeoutMs: Long = BLUETOOTH_DEVICE_DISCOVERY_WAIT_MS,
   ): AudioDeviceInfo? {
     val deadline = System.currentTimeMillis() + timeoutMs
     do {
-      val input = bluetoothInput(context, preferredProductName)
+      val input = bluetoothInput(context, preferredProductName, preferredDeviceId)
       if (input != null) {
         Log.i(TAG, "Bluetooth input discovered id=${input.id}, type=${input.type}, name=${input.productName}")
         return input
@@ -349,3 +379,23 @@ private fun String?.normalizedDeviceName(): String? =
     ?.trim()
     ?.lowercase(Locale.ROOT)
     ?.takeIf { it.isNotBlank() }
+
+
+/**
+ * Stable priority for a pinned Bluetooth device. The ID is preferred when it
+ * still matches; otherwise the product name is used so a reconnect with a new
+ * AudioDeviceInfo ID does not hand control to a later-connected headset.
+ */
+internal object AudioDevicePriority {
+  fun <T> pick(
+    devices: List<T>,
+    preferredDeviceId: Int?,
+    preferredProductName: String?,
+    idOf: (T) -> Int,
+    nameOf: (T) -> String?,
+  ): T? {
+    preferredDeviceId?.let { id -> devices.firstOrNull { idOf(it) == id }?.let { return it } }
+    val preferredName = preferredProductName.normalizedDeviceName() ?: return null
+    return devices.firstOrNull { nameOf(it).normalizedDeviceName() == preferredName }
+  }
+}

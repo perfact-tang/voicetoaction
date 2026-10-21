@@ -293,15 +293,20 @@ object BluetoothRecordingWorkflow {
     preparationJob?.cancel()
     preparationJob = scope.launch(Dispatchers.IO) {
       try {
-        val preferredBluetoothName = BluetoothMediaRouteState.deviceName()
+        val settings = appStore.snapshot.value
+        val pinnedDeviceId = settings.selectedRecordingDeviceId
+        val pinnedDeviceName = settings.selectedRecordingDeviceName
+        // The user's pinned recording device wins for as long as it is still
+        // present. A later-connected media headset must not replace it.
         val selectedBluetoothInput =
-          AudioDeviceSelection.findInput(context, appStore.snapshot.value.selectedRecordingDeviceId)
-            ?.takeIf(AudioDeviceSelection::isBluetoothInput)
+          AudioDeviceSelection.findBluetoothInput(context, pinnedDeviceId, pinnedDeviceName)
+        val preferredBluetoothName = pinnedDeviceName ?: BluetoothMediaRouteState.deviceName()
         val immediatelyAvailableBluetoothInput =
-          AudioDeviceSelection.bluetoothInput(
-            context = context,
-            preferredProductName = preferredBluetoothName,
-          ) ?: selectedBluetoothInput
+          selectedBluetoothInput
+            ?: AudioDeviceSelection.bluetoothInput(
+              context = context,
+              preferredProductName = preferredBluetoothName,
+            )
         val route =
           if (directSco) {
             // The voice-command path must never fall back to the phone
@@ -329,6 +334,7 @@ object BluetoothRecordingWorkflow {
             ?: AudioDeviceSelection.waitForBluetoothInput(
               context = context,
               preferredProductName = preferredBluetoothName,
+              preferredDeviceId = pinnedDeviceId,
             )
         coroutineContext.ensureActive()
         if (!isPreparing(recordingId)) {
@@ -388,8 +394,12 @@ object BluetoothRecordingWorkflow {
         // often stale availableCommunicationDevices list before requesting it.
         coroutineContext.ensureActive()
         if (!isPreparing(recordingId)) return@launch
-        val bluetoothInput = AudioDeviceSelection.bluetoothInput(context, discoveredInput.productName?.toString()) ?: discoveredInput
-        appStore.saveSelectedRecordingDevice(bluetoothInput.id)
+        val bluetoothInput =
+          AudioDeviceSelection.findBluetoothInput(
+            context,
+            discoveredInput.id,
+            discoveredInput.productName?.toString(),
+          ) ?: discoveredInput
         runCatching {
             context.startForegroundService(
               Intent(context, RecordingService::class.java)

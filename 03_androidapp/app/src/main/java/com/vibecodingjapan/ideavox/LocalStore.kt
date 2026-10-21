@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 class LocalStore(context: Context) {
+  private val appContext = context.applicationContext
   private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
   private val dataFile = File(context.filesDir, "luyin_snapshot.json")
   private val _snapshot = MutableStateFlow(loadSnapshot())
@@ -16,6 +17,20 @@ class LocalStore(context: Context) {
 
   val recordingsDir: File = File(context.filesDir, "recordings").also { it.mkdirs() }
   val processedDir: File = File(context.filesDir, "processed").also { it.mkdirs() }
+
+  init {
+    // Migrate the old ID-only selection to a stable device name. The ID can
+    // change across reconnects; the pinned name keeps priority while present.
+    val current = _snapshot.value
+    if (current.selectedRecordingDeviceId != null && current.selectedRecordingDeviceName.isNullOrBlank()) {
+      val input =
+        AudioDeviceSelection.findInput(appContext, current.selectedRecordingDeviceId)
+          ?.takeIf(AudioDeviceSelection::isBluetoothInput)
+      input?.productName?.toString()?.takeIf { it.isNotBlank() }?.let { name ->
+        save(current.copy(selectedRecordingDeviceName = name))
+      }
+    }
+  }
 
   @Synchronized
   fun setActiveUser(uid: String?) {
@@ -116,8 +131,13 @@ class LocalStore(context: Context) {
   }
 
   @Synchronized
-  fun saveSelectedRecordingDevice(deviceId: Int?) {
-    save(_snapshot.value.copy(selectedRecordingDeviceId = deviceId))
+  fun saveSelectedRecordingDevice(deviceId: Int?, deviceName: String? = null) {
+    save(
+      _snapshot.value.copy(
+        selectedRecordingDeviceId = deviceId,
+        selectedRecordingDeviceName = deviceName?.takeIf { it.isNotBlank() },
+      ),
+    )
   }
 
   @Synchronized

@@ -34,6 +34,8 @@ internal object IdeavoxTranslations {
       "请先登录" to t("先にログインしてください", "Sign in first", "먼저 로그인하세요"),
       "音频设备" to t("音声デバイス", "Audio devices", "오디오 기기"),
       "系统默认" to t("システム既定", "System default", "시스템 기본값"),
+      "已固定的蓝牙录音设备只要仍连接，就不会被后连接的其他蓝牙耳机替换。" to
+        t("固定したBluetooth録音デバイスは、接続中であれば後から接続した別のBluetoothイヤホンに置き換えられません。", "A pinned Bluetooth recording device stays selected while it is connected, even if another Bluetooth headset connects later.", "고정된 Bluetooth 녹음 장치는 연결되어 있는 동안 나중에 연결된 다른 Bluetooth 이어폰으로 바뀌지 않습니다."),
       "录音设备会影响新录音；播放设备会影响录音详情里的音频播放。" to
         t(
           "録音デバイスは新しい録音に、再生デバイスは録音詳細の再生に使用されます。",

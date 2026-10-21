@@ -403,6 +403,7 @@ fun LuYinApp(
             SettingsScreen(
               authState = authState,
               selectedRecordingDeviceId = snapshot.selectedRecordingDeviceId,
+              selectedRecordingDeviceName = snapshot.selectedRecordingDeviceName,
               selectedPlaybackDeviceId = snapshot.selectedPlaybackDeviceId,
               selectedUploadOutputFormat = snapshot.selectedUploadOutputFormat,
               bluetoothRecordingControlMode = snapshot.bluetoothRecordingControlMode,
@@ -863,6 +864,7 @@ private fun LiveRecordingWaveform(level: Float, elapsedMs: Long, recording: Bool
 private fun SettingsScreen(
   authState: AuthUiState,
   selectedRecordingDeviceId: Int?,
+  selectedRecordingDeviceName: String?,
   selectedPlaybackDeviceId: Int?,
   selectedUploadOutputFormat: UploadOutputFormat,
   bluetoothRecordingControlMode: BluetoothRecordingControlMode,
@@ -901,8 +903,15 @@ private fun SettingsScreen(
   }
   val inputDevices = AudioDeviceSelection.inputDevices(context)
   val outputDevices = AudioDeviceSelection.outputDevices(context)
+  val selectedInputDevice =
+    selectedRecordingDeviceId?.let { selected -> inputDevices.firstOrNull { it.id == selected } }
+      ?: selectedRecordingDeviceName?.let { name ->
+        inputDevices.firstOrNull { it.productName?.toString() == name }
+      }
   val inputLabel =
-    selectedRecordingDeviceId?.let { selected -> inputDevices.firstOrNull { it.id == selected }?.let(AudioDeviceSelection::label) } ?: "系统默认"
+    selectedInputDevice?.let(AudioDeviceSelection::label)
+      ?: selectedRecordingDeviceName?.takeIf { it.isNotBlank() }?.let { "$it · 未连接（重新连接后优先）" }
+      ?: "系统默认"
   val outputLabel =
     selectedPlaybackDeviceId?.let { selected -> outputDevices.firstOrNull { it.id == selected }?.let(AudioDeviceSelection::label) } ?: "系统默认"
 
@@ -1003,7 +1012,7 @@ private fun SettingsScreen(
             DropdownMenuItem(
               text = { LocalizedText("系统默认") },
               onClick = {
-                appStore.saveSelectedRecordingDevice(null)
+                appStore.saveSelectedRecordingDevice(null, null)
                 inputMenuExpanded = false
               },
             )
@@ -1011,7 +1020,7 @@ private fun SettingsScreen(
               DropdownMenuItem(
                 text = { LocalizedText(AudioDeviceSelection.label(device)) },
                 onClick = {
-                  appStore.saveSelectedRecordingDevice(device.id)
+                  appStore.saveSelectedRecordingDevice(device.id, device.productName?.toString())
                   inputMenuExpanded = false
                 },
               )
@@ -1039,6 +1048,7 @@ private fun SettingsScreen(
             }
           }
         }
+        LocalizedText("已固定的蓝牙录音设备只要仍连接，就不会被后连接的其他蓝牙耳机替换。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
         LocalizedText("录音设备会影响新录音；播放设备会影响录音详情里的音频播放。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
       }
     }
@@ -1375,17 +1385,19 @@ private fun RecorderScreen(
 
   fun setCallInputRoute(route: CallInputRoute, showMessage: Boolean = true) {
     callInputRoute = route
+    val pinnedSettings = appStore.snapshot.value
     val deviceId =
       when (route) {
         CallInputRoute.EARPIECE, CallInputRoute.SPEAKER -> AudioDeviceSelection.builtInMic(context)?.id
         CallInputRoute.BLUETOOTH -> {
-          val bluetooth = AudioDeviceSelection.bluetoothInput(context)
+          val bluetooth =
+            AudioDeviceSelection.bluetoothInput(context, pinnedSettings.selectedRecordingDeviceName, pinnedSettings.selectedRecordingDeviceId)
           if (bluetooth == null && showMessage) onMessage("没有可用的蓝牙通话麦克风")
           bluetooth?.id
         }
       }
     if (route == CallInputRoute.BLUETOOTH && deviceId == null) return
-    appStore.saveSelectedRecordingDevice(deviceId)
+    appStore.saveSelectedRecordingDevice(deviceId, AudioDeviceSelection.findInput(context, deviceId)?.productName?.toString())
     context.startService(
       Intent(context, RecordingService::class.java)
         .setAction(RecordingService.ACTION_SET_INPUT_DEVICE)
@@ -1394,12 +1406,15 @@ private fun RecorderScreen(
   }
 
   fun startAICalling(item: AICallingItem) {
+    val pinnedSettings = appStore.snapshot.value
     val deviceId =
       when (callInputRoute) {
         CallInputRoute.EARPIECE, CallInputRoute.SPEAKER -> AudioDeviceSelection.builtInMic(context)?.id
-        CallInputRoute.BLUETOOTH -> AudioDeviceSelection.bluetoothInput(context)?.id ?: AudioDeviceSelection.builtInMic(context)?.id
+        CallInputRoute.BLUETOOTH ->
+          AudioDeviceSelection.bluetoothInput(context, pinnedSettings.selectedRecordingDeviceName, pinnedSettings.selectedRecordingDeviceId)?.id
+            ?: AudioDeviceSelection.builtInMic(context)?.id
       }
-    appStore.saveSelectedRecordingDevice(deviceId)
+    appStore.saveSelectedRecordingDevice(deviceId, AudioDeviceSelection.findInput(context, deviceId)?.productName?.toString())
     val intent =
       Intent(context, RecordingService::class.java)
         .setAction(RecordingService.ACTION_START)

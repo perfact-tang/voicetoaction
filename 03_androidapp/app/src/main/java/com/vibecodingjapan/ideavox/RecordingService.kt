@@ -161,6 +161,7 @@ class RecordingService : Service() {
     }
     startForeground(1001, notification("正在准备录音"))
     currentId = intent?.getStringExtra(EXTRA_RECORDING_ID)?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
+    val settings = appStore.snapshot.value
     val useSystemDefaultInput =
       intent?.getBooleanExtra(EXTRA_USE_SYSTEM_DEFAULT_INPUT, false) == true
     val requestedInputDeviceId =
@@ -168,7 +169,7 @@ class RecordingService : Service() {
         useSystemDefaultInput -> null
         intent?.hasExtra(EXTRA_INPUT_DEVICE_ID) == true ->
           intent.getIntExtra(EXTRA_INPUT_DEVICE_ID, -1).takeIf { it >= 0 }
-        else -> appStore.snapshot.value.selectedRecordingDeviceId
+        else -> settings.selectedRecordingDeviceId
       }
     val requireBluetoothInput = intent?.getBooleanExtra(EXTRA_REQUIRE_BLUETOOTH_INPUT, false) == true
     // Voice-command triggers use direct SCO instead of a Telecom call. This
@@ -179,7 +180,14 @@ class RecordingService : Service() {
       !forceDirectSco && intent?.getBooleanExtra(EXTRA_TELECOM_CONTROL_PREWARMED, false) == true
     var selectedInput = AudioDeviceSelection.findInput(this, requestedInputDeviceId)
     if (requireBluetoothInput && selectedInput?.let(AudioDeviceSelection::isBluetoothInput) != true) {
-      selectedInput = AudioDeviceSelection.bluetoothInput(this)
+      // Pinned device first; only fall back to another Bluetooth input when it
+      // is no longer present.
+      selectedInput =
+        AudioDeviceSelection.findBluetoothInput(
+          this,
+          settings.selectedRecordingDeviceId,
+          settings.selectedRecordingDeviceName,
+        ) ?: AudioDeviceSelection.bluetoothInput(this, settings.selectedRecordingDeviceName)
     }
     if (requireBluetoothInput && selectedInput == null) {
       failRecordingStart("蓝牙麦克风当前不可用，录音未启动")
@@ -545,9 +553,9 @@ class RecordingService : Service() {
 
   private fun setInputDevice(intent: Intent) {
     val deviceId = if (intent.hasExtra(EXTRA_INPUT_DEVICE_ID)) intent.getIntExtra(EXTRA_INPUT_DEVICE_ID, -1).takeIf { it >= 0 } else null
-    appStore.saveSelectedRecordingDevice(deviceId)
-    val active = recorder ?: return
     val nextDevice = AudioDeviceSelection.findInput(this, deviceId)
+    appStore.saveSelectedRecordingDevice(deviceId, nextDevice?.productName?.toString())
+    val active = recorder ?: return
     AudioDeviceSelection.restoreInputRoute(this, currentInputRoute)
     currentInputRoute = null
     currentInputDeviceId = nextDevice?.id

@@ -91,6 +91,8 @@ data class LocalSnapshot(
   val readerFontSizeSp: Float = 22f,
   val downloadedRemoteRecordingIds: List<String> = emptyList(),
   val selectedRecordingDeviceId: Int? = null,
+  /** Stable product name used to re-find the pinned device after reconnect. */
+  val selectedRecordingDeviceName: String? = null,
   val selectedPlaybackDeviceId: Int? = null,
   val selectedUploadOutputFormat: UploadOutputFormat = UploadOutputFormat.AAC_M4A,
   val bluetoothRecordingControlMode: BluetoothRecordingControlMode = BluetoothRecordingControlMode.AUTO,

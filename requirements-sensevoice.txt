@@ -1,0 +1,4 @@
+# SenseVoice-Small STT 后端（sherpa-onnx / ONNX Runtime）
+# 与 faster-whisper 共用同一个 .venv；两个都可装，引擎由 STT_ENGINE 决定。
+# 注意：sherpa-onnx 提供的是 CPU wheel（int8 推理已足够快），不依赖 torch。
+sherpa-onnx>=2.0.0

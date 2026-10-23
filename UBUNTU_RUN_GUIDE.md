@@ -2,7 +2,7 @@
 
 > 本项目是**声音监控程序**：Node 服务启动即用 **Firebase Admin（服务账号）** 自动监听 Firestore
 > `recordings` 集合，只处理 **`.env` 中 `MONITOR_USER_IDS`** 指定的用户的录音，自动完成
-> 下载 → faster-whisper 转录 → 生成 Google Doc → 回写 Firestore。
+> 下载 → SenseVoice-Small 转录（回退 faster-whisper）→ 生成 Google Doc → 回写 Firestore。
 > **Web 页面只是监视仪表盘**：页面开不开，后台都持续运行。
 >
 > 文档中的命令已在以下环境实测通过：
@@ -18,11 +18,11 @@
 | 监听 | 启动即自动监听 `collectionGroup("recordings")`，只处理新出现的记录 |
 | 用户过滤 | 只处理 `MONITOR_USER_IDS`（逗号分隔复数）中的用户；字段名 `MONITOR_USER_ID_FIELD`（默认 uid） |
 | 音频源 | Firebase Storage（`storageUri` / `recordFile` 为 `gs://`，服务端直接下载） |
-| 转录 | **faster-whisper**（Python + CTranslate2），无 GPU 自动 CPU int8 |
+| 转录 | **SenseVoice-Small**（sherpa-onnx / ONNX Runtime，CPU int8，默认）；语种不支持或后端不可用时回退 **faster-whisper**（CTranslate2） |
 | 输出 | Google Doc（Drive OAuth，客户端 JSON 路径写于 `.env`），回写 Firestore `state: success/failed` |
 | Web 页面 | 只读仪表盘：Admin/Drive/监视用户状态 + 处理历史 + 实时日志（SSE） |
 
-流水线：`监听新记录 →（用户过滤）→ 下载 GCS 音频 → FFmpeg 转 16k wav → faster-whisper 转录 → 创建 Google Doc → 回写 Firestore`。
+流水线：`监听新记录 →（用户过滤）→ 下载 GCS 音频 → FFmpeg 转 16k wav → SenseVoice-Small 转录（回退 faster-whisper）→ 创建 Google Doc → 回写 Firestore`。
 
 ---
 
@@ -34,7 +34,7 @@ cp .env.example .env
 #    必填：FIREBASE_ADMIN_KEY_PATH（服务账号 JSON 路径）
 #         GOOGLE_OAUTH_CLIENT_PATH（Drive OAuth 客户端 JSON 路径）
 #    建议：MONITOR_USER_IDS=uid1,uid2（只监视这些用户）
-#    可选：GOOGLE_DRIVE_FOLDER_ID / MONITOR_USER_ID_FIELD / WHISPER_MODEL
+#    可选：GOOGLE_DRIVE_FOLDER_ID / MONITOR_USER_ID_FIELD / STT_ENGINE / WHISPER_MODEL
 
 # 2) 一键安装 + 启动（启动即自动监听）
 ./run-ubuntu.sh
@@ -61,8 +61,9 @@ cd /path/to/voicetoaction
 npm install
 cp .env.example .env   # 编辑填入键值
 
-# 3) faster-whisper 转录后端
-npm run setup:faster-whisper
+# 3) STT 后端（两个都装：SenseVoice 主引擎 + faster-whisper 回退）
+npm run setup:stt
+#    只装 SenseVoice：npm run setup:sensevoice（会预下载约 240MB 模型）
 
 # 4) 启动（自动监听）
 npm run dev     # 等价于 node server.js
@@ -73,10 +74,11 @@ npm run dev     # 等价于 node server.js
 ```
 [monitor] Firebase Admin 已初始化（项目 vibecodingjapan）
 [monitor] Firestore 监听已自动启动（collectionGroup: recordings；监视用户: uid1, uid2）
-faster-whisper backend: ready
+STT 引擎: SenseVoice-Small (sherpa-onnx ready)
+faster-whisper backend: ready（回退用）
 Firebase Admin: ready (project vibecodingjapan)
 监视用户: uid1, uid2 | 用户字段: uid
-Drive: tan@example.com | 模型: faster:small
+Drive: tan@example.com | 回退模型: faster:small
 ================================================
 VoiceToAction AI Monitor 起動しました。
 IPアドレスは 192.168.0.161 です。          ← 局域网 IP（自动检测）
@@ -102,7 +104,10 @@ Web ページ: http://192.168.0.161:15888
 | `GOOGLE_DRIVE_FOLDER_ID` | 可选 | 默认输出文件夹 ID；记录文档 `aicallingid` 字段可逐条覆盖 |
 | `MONITOR_USER_IDS` | 建议 | **只监视的用户 ID**，多个用英文逗号分隔；留空 = 监视全部 |
 | `MONITOR_USER_ID_FIELD` | 可选 | 记录文档中用户 ID 字段名（默认 `uid`） |
-| `WHISPER_MODEL` | 可选 | faster:tiny / base / small / medium / large-v3 / distil-large-v3 |
+| `STT_ENGINE` | 可选 | `sensevoice`（默认）/ `faster-whisper`；SenseVoice 只支持 zh/yue/en/ja/ko，其它语种自动回退 |
+| `WHISPER_MODEL` | 可选 | **回退引擎**的模型：faster:tiny / base / small / medium / large-v3 / distil-large-v3 |
+| `SENSEVOICE_MODEL_DIR` | 可选 | SenseVoice 模型目录（默认 `models/sensevoice`） |
+| `SENSEVOICE_THREADS` | 可选 | SenseVoice 推理线程数（默认 `min(4, CPU)`） |
 | `PORT` / `HOST` | 可选 | 服务端口 / 监听地址 |
 
 > `.env` 含服务账号私钥，已在 `.gitignore` 中，请勿提交。
@@ -135,9 +140,11 @@ Web ページ: http://192.168.0.161:15888
 | `server.js` | 入口（读 .env、启动、HTTP/SSE） |
 | `monitor.js` | Monitor 运行时（Admin、自动监听、用户过滤、队列、编排） |
 | `monitor-sidecar/index.js` | Drive / Docs 侧车 |
-| `scripts/faster_whisper_transcribe.py` | Python 转录进程 |
+| `scripts/sensevoice_transcribe.py` | Python 转录进程（SenseVoice-Small，默认引擎） |
+| `scripts/faster_whisper_transcribe.py` | Python 转录进程（faster-whisper，回退引擎） |
 | `monitor-data/` | 任务历史（jobs.json）、Drive token、临时工作目录 |
-| `models/faster-whisper/` | 模型下载目录 |
+| `models/faster-whisper/` | faster-whisper 模型目录 |
+| `models/sensevoice/` | SenseVoice 模型目录（int8 约 240MB） |
 | `.env.example` / `.env` | 配置模板 / 实际配置 |
 | `run-ubuntu.sh` | 一键安装 + 启动 |
 
@@ -145,7 +152,7 @@ Web ページ: http://192.168.0.161:15888
 
 | 接口 | 说明 |
 | :--- | :--- |
-| `GET /api/health` | 后端 / Admin / faster-whisper / 监视用户状态 |
+| `GET /api/health` | 后端 / Admin / SenseVoice / faster-whisper / 监视用户状态 |
 | `GET /api/monitor/state` | 完整快照（config / jobs / logs） |
 | `POST /api/monitor/command` | `monitor_connect_drive`（一次性 Drive 授权） |
 | `GET /api/monitor/events` | SSE 事件流（snapshot / log） |
@@ -154,7 +161,7 @@ Web ページ: http://192.168.0.161:15888
 
 ## 7. 无 GPU 说明
 
-- faster-whisper（CTranslate2）无 GPU 自动 CPU + int8 量化，本项目**完全不需要 GPU**。
+- SenseVoice-Small（sherpa-onnx / ONNX Runtime）与 faster-whisper（CTranslate2）都是 CPU int8 推理，本项目**完全不需要 GPU**。
 - CPU 转录速度参考（8 核）：tiny ≈ 实时 5~10 倍，base ≈ 2~4 倍，small ≈ 1~2 倍。
 - 模型下载慢（国内网络）：`export HF_ENDPOINT=https://hf-mirror.com` 后重跑脚本。
 
@@ -182,7 +189,7 @@ Web ページ: http://192.168.0.161:15888
 
 1. ✅ 架构改回 **Firebase Admin**：`firebase-admin@13.10.0`，服务账号路径来自 `.env`
 2. ✅ **启动即自动监听**：实测启动日志出现 `Firestore 监听已自动启动（collectionGroup: recordings；监视用户: ...）`
-3. ✅ `.env` 读取：`FIREBASE_ADMIN_KEY_PATH` / `GOOGLE_OAUTH_CLIENT_PATH` / `GOOGLE_DRIVE_FOLDER_ID` / `MONITOR_USER_IDS`（逗号分隔解析正确） / `MONITOR_USER_ID_FIELD` / `WHISPER_MODEL`
+3. ✅ `.env` 读取：`FIREBASE_ADMIN_KEY_PATH` / `GOOGLE_OAUTH_CLIENT_PATH` / `GOOGLE_DRIVE_FOLDER_ID` / `MONITOR_USER_IDS`（逗号分隔解析正确） / `MONITOR_USER_ID_FIELD` / `STT_ENGINE` / `WHISPER_MODEL`
 4. ✅ 用户过滤逻辑：仅 `MONITOR_USER_IDS` 中的用户进入队列（模拟凭据启动验证状态输出）
 5. ✅ `monitor_connect_drive` 生成授权链接（sidecar 正常拉起）
 6. ✅ 仪表盘（状态卡片/处理历史/日志流）与 SSE 实时推送正常

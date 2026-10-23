@@ -7,7 +7,7 @@ description: >-
   最后调用一次 vibecodingjapan-upblog 上传到 VibeCoding Japan 博客。
 metadata:
   category: Content
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # 音声テキスト → 多言語ブログ → アップロード
@@ -172,6 +172,7 @@ mkdir -p "$DOC_DIR"
   "docid": "<DOCID>",
   "userid": "",
   "ispublic": true,
+  "ispublicsiteshow": false,
   "createdat": <DOCID 的数字值>,
   "translations": {
     "ja": {
@@ -207,9 +208,11 @@ mkdir -p "$DOC_DIR"
 - `docid` = 本次 DocID（字符串）；`createdat` = 同一个值（数字）。`userid` 留空字符串即可，
   上传时由 `--uid` 决定作者；`ispublic` 为 `true`。
 - 3 个语言都必须有 `blogtitle`；`translations` 这一层不能省。
+- `ispublicsiteshow` 固定写 `false`。必须显式写出来：缺这个字段时站点会当成“展示”，
+  只有 `false` 才不展示。不要写 `true`。
 - `mindmapurl` 固定 `""`，`coverImageMode` 固定 `"mindmap"`（本 CLI 不生成封面图）。
 - 正文不要写进 JSON（`markdown` 字段由 `--ja/--zh/--en` 的 Markdown 文件提供）。
-- 不要写 `blogseo` 以外的自定义字段（拼错的字段会被 CLI 忽略并告警）。
+- 除上面列出的字段（含 `ispublicsiteshow`）以外不要写自定义字段（拼错的字段会被 CLI 忽略并告警）。
 
 ---
 

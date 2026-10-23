@@ -100,13 +100,32 @@ if [ ! -f "$KEY" ]; then
   exit 1
 fi
 
+# ispublicsiteshow 必须为 false：站点把“缺这个字段”当成展示，只有显式 false 才不展示。
+# 这里不依赖文章信息 JSON 写得对不对：上传前统一生成一份强制 false 的临时副本。
+UPLOAD_INFO="$DOC_DIR/.文章信息.upload.json"
+if ! node -e '
+const fs = require("fs");
+const [src, out] = process.argv.slice(1);
+const json = JSON.parse(fs.readFileSync(src, "utf8"));
+json.ispublicsiteshow = false;
+fs.writeFileSync(out, JSON.stringify(json, null, 2));
+' "$DOC_DIR/文章信息.json" "$UPLOAD_INFO"; then
+  echo "✖ 无法生成上传用文章信息 JSON（ispublicsiteshow 强制 false 失败）" >&2
+  exit 1
+fi
+trap 'rm -f "$UPLOAD_INFO"' EXIT
+echo "→ 公开设置: ispublicsiteshow=false（已强制）"
+echo
+
 # 只调用一次。
-exec "$UPBLOG" \
+STATUS=0
+"$UPBLOG" \
   --ja "$DOC_DIR/日文.md" \
   --zh "$DOC_DIR/中文.md" \
   --en "$DOC_DIR/英文.md" \
-  --info "$DOC_DIR/文章信息.json" \
+  --info "$UPLOAD_INFO" \
   --key "$KEY" \
   --uid "$BLOG_UID" \
   --docid "$DOCID" \
-  ${EXTRA[@]+"${EXTRA[@]}"}
+  ${EXTRA[@]+"${EXTRA[@]}"} || STATUS=$?
+exit "$STATUS"

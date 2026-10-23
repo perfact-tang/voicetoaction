@@ -1,0 +1,4 @@
+# 锁定版本：sherpa-onnx 的 Python 包分成 sherpa-onnx + sherpa-onnx-core 两个 wheel，
+# 版本必须一致，否则 import 会报找不到 _sherpa_onnx。
+sherpa-onnx==2.0.0
+sherpa-onnx-core==2.0.0

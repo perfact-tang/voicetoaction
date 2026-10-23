@@ -16,7 +16,8 @@
         ├─ kind = "Markdown"（storageUri 是文本 md 文件，不是录音）
         │    → 跳过 FFmpeg / STT，直接读取 md 文本 → 继续下面的 Action 处理
         └─ 其他 kind（录音）
-             → FFmpeg 转 16k wav → faster-whisper 转录
+             → FFmpeg 转 16k wav → SenseVoice-Small 转录
+               （默认引擎；语种不支持 / 后端不可用时自动回退 faster-whisper）
         →
         ├─ serviceType = google_workspace_studio（默认，兼容旧的 aicalling 记录）
         │    → sidecar 创建 Google Doc（Drive OAuth）→ 回写 googleDocUrl
@@ -41,7 +42,7 @@
 | `kind` | `storageUri` 指向 | 后端行为 |
 | :--- | :--- | :--- |
 | `Markdown`（也兼容 `MARKDOWN` / `md` / `text/markdown`） | 一份 UTF-8 Markdown 文本文件 | **不做 STT**：下载后直接读取文本，进入后续 Action 处理（Google Doc 或 Skill），任务阶段显示 `reading_text` |
-| 其他（`ORIGINAL` / `MERGED` 等） | 录音文件 | FFmpeg 转 16k wav → faster-whisper 转录 |
+| 其他（`ORIGINAL` / `MERGED` 等） | 录音文件 | FFmpeg 转 16k wav → SenseVoice-Small 转录（默认引擎，见下文） |
 
 两种情况之后的处理完全一致，Markdown 输入同样会生成 Google Doc / 执行 Skill 并回写 `state: success`。
 
@@ -55,7 +56,9 @@
 | `monitor-skills.js` | Skills：本地版本登记、版本比对、删除重装、调用 `aiskillsrunner` |
 | `monitor-notify.js` | FCM：读取 `users/{uid}/fcmTokens`、发送通知、清理失效令牌 |
 | `monitor-sidecar/` | Google Drive / Docs 侧车（OAuth 授权、创建文档） |
-| `scripts/faster_whisper_transcribe.py` | Python 转录进程（.venv 内 faster-whisper） |
+| `scripts/sensevoice_transcribe.py` | Python 转录进程（.venv 内 sherpa-onnx / SenseVoice-Small，默认引擎） |
+| `scripts/faster_whisper_transcribe.py` | Python 转录进程（.venv 内 faster-whisper，回退引擎） |
+| `scripts/stt-engines.js` | STT 引擎路由（默认 SenseVoice；语种不支持 / 后端不可用 → faster-whisper） |
 | `01_aiskillsrunner/` | 调用本机 dsh 执行 skill 的 CLI（支持 `--installurl` / `--force-install`） |
 | `public/` | 只读监视仪表盘（状态卡片 + 处理历史 + 日志流） |
 
@@ -69,7 +72,8 @@ cp .env.example .env
 #    GOOGLE_DRIVE_FOLDER_ID     输出文件夹 ID（可选，可用 aicallingid 覆盖）
 #    MONITOR_USER_IDS           只监视的用户 ID，逗号分隔（如 uid1,uid2）
 #    MONITOR_USER_ID_FIELD      用户 ID 字段名（默认 uid）
-#    WHISPER_MODEL              转录模型（默认 faster:small）
+#    STT_ENGINE                 STT 引擎：sensevoice（默认）/ faster-whisper
+#    WHISPER_MODEL              回退引擎的模型（默认 faster:small）
 #    SKILLS_DIR                 skill 安装目录（默认 monitor-data/skills，只给本后端用）
 #    FCM_ENABLED                任务结束推送 FCM 通知（默认 true）
 
@@ -112,7 +116,10 @@ cp .env.example .env
 | `GOOGLE_DRIVE_FOLDER_ID` | 可选 | 默认输出文件夹 ID（记录文档 `aicallingid` 可覆盖） |
 | `MONITOR_USER_IDS` | 建议 | 只监视的用户 ID，**逗号分隔复数**；留空 = 全部用户 |
 | `MONITOR_USER_ID_FIELD` | 可选 | 记录文档中用户 ID 字段名（默认 `uid`） |
-| `WHISPER_MODEL` | 可选 | faster:tiny / base / small / medium / large-v3 / distil-large-v3 |
+| `STT_ENGINE` | 可选 | `sensevoice`（默认，SenseVoice-Small）/ `faster-whisper`；见下文「STT 引擎」 |
+| `WHISPER_MODEL` | 可选 | **回退引擎**用的模型：faster:tiny / base / small / medium / large-v3 / distil-large-v3 |
+| `SENSEVOICE_MODEL_DIR` | 可选 | SenseVoice 模型目录（默认 `models/sensevoice`；缺失时首次转录自动下载） |
+| `SENSEVOICE_THREADS` | 可选 | SenseVoice 推理线程数（默认 `min(4, CPU 核数)`） |
 | `SKILLS_DIR` | 可选 | skill 安装目录（默认 `monitor-data/skills`，**只给本后端用**，不污染 `~/.agents/skills`） |
 | `SKILLS_RUNNER_BIN` | 可选 | aiskillsrunner 路径（默认用仓库里的 `01_aiskillsrunner/aiskillsrunner.js`，由同一个 node 执行） |
 | `DSH_BIN` | 可选 | dsh 可执行文件（默认由 aiskillsrunner 从 PATH 查找；子进程 PATH 会自动补上当前 node 目录） |
@@ -124,6 +131,73 @@ cp .env.example .env
 | `DSH_PERMISSION_MODE` | 可选 | 传给 `dsh` 的权限模式（默认 `danger-full-access`） |
 | `FCM_ENABLED` | 可选 | 任务结束后是否推送 FCM 通知（默认 `true`，设 `false` 关闭） |
 | `PORT` / `HOST` | 可选 | 服务端口 / 监听地址 |
+
+## STT 引擎（默认 SenseVoice-Small）
+
+录音先由 FFmpeg 转成 16k / 单声道 / 16-bit wav，再交给 STT：
+
+| 引擎 | 实现 | 语种 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `sensevoice`（默认） | sherpa-onnx + SenseVoice-Small（int8 ONNX） | zh / yue / en / ja / ko | 非自回归 encoder，CPU 上极快；自带标点与 ITN；中文统一输出**简体** |
+| `faster-whisper` | CTranslate2 faster-whisper | 99 语种 | **回退引擎**：语种不支持、或 SenseVoice 不可用 / 出错时自动使用 |
+
+选择逻辑（`scripts/stt-engines.js`，有单测）：
+
+- `STT_ENGINE=sensevoice`（默认）：SenseVoice 能导入就用；语种不在 5 种内、或后端不可用 → 自动回退 faster-whisper（日志会写明原因）；
+- `STT_ENGINE=faster-whisper`：完全沿用旧行为，用 `WHISPER_MODEL` 指定的模型；
+- 单次 SenseVoice 转录失败也会回退并继续任务，不会让录音处理失败。
+
+```bash
+npm run setup:stt          # 两个引擎都装（推荐）
+npm run setup:sensevoice   # 只装 SenseVoice（sherpa-onnx）+ 预下载模型（约 240MB）
+```
+
+模型放在 `models/sensevoice/`（`SENSEVOICE_MODEL_DIR` 可改）。没预下载也能用：首次转录会自动从 HuggingFace 拉取。
+
+### 速度（本机实测：12 核 CPU、无 GPU、int8）
+
+| 音频 | SenseVoice-Small | faster-whisper small | faster-whisper large-v3 |
+| :--- | ---: | ---: | ---: |
+| 日语 58.2s | **2.36s**（RTF 0.041） | 38.2s（RTF 0.66）¹ | 27.9s（RTF 0.48） |
+| 中文 45.3s | **1.88s**（RTF 0.042） | 4.7s（RTF 0.10） | 49.1s（RTF 1.08） |
+
+¹ small 在这个日语样本上陷入重复输出，解码时间被放大；这也正是中文/日文长录音建议用
+large-v3 或 SenseVoice 的原因。按上面的实测，SenseVoice 比 faster-whisper large-v3 快
+**约 12–26 倍**，比 small 快 2.5–16 倍。
+
+### 准确率（论文 Table 6，CER %）
+
+| 测试集 | Whisper-L-V3 | SenseVoice-S |
+| :--- | ---: | ---: |
+| AISHELL-1（中文） | 5.14 | **2.96** |
+| AISHELL-2（中文） | 4.96 | **3.80** |
+| WenetSpeech meeting | 18.87 | **7.44** |
+| CommonVoice zh-CN | 12.55 | **10.78** |
+| CommonVoice ja | **10.34** | 11.96 |
+| CommonVoice ko | 5.59 | 8.28 |
+| CommonVoice yue | 10.41 | **7.09** |
+| LibriSpeech clean（WER） | **1.82** | 3.15 |
+
+结论：**中文 / 粤语明显更好，日语略差于 Whisper-Large（论文口径），英语不如 Whisper**。
+官方 README 也只主张「中文、粤语有优势」。所以：
+
+- 以中文内容为主 → SenseVoice 既快又准，直接用默认配置；
+- 以日语内容为主且更看重准确率 → 设 `STT_ENGINE=faster-whisper` + `WHISPER_MODEL=faster:large-v3`；
+- 两者都有 → 保持默认（实测日语口语样本上 SenseVoice 与 large-v3 质量相当，却快一个数量级）。
+
+其他差异：
+
+- SenseVoice **不做翻译**，也不给词级时间戳（本项目只需要正文 + VAD 给出的句级边界）；
+- 中文输出固定简体（Whisper 有时会给繁体）；
+- 标点 / 数字规范化（ITN）默认开启；日文里你可能会看到「50円」这类标准写法。
+
+`GET /api/health` 同时返回两个后端的探测结果：
+
+```json
+{ "sttEngine": "sensevoice",
+  "sensevoice": { "ready": true, "modelReady": true, "vadReady": true, "version": "2.0.0" },
+  "fasterWhisper": { "ready": true } }
+```
 
 ## Skills 流程（呼叫对象类型 = DeepSeek Harness）
 
@@ -274,19 +348,20 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 | `scripts/send-test-push.mjs` | 手动发测试推送 + 等待手机回执（排查通知问题） |
 | `monitor-sidecar/index.js` | Drive / Docs 侧车 |
 | `monitor-data/` | 任务历史（jobs.json）、Drive token、临时目录、`skills/`（Skill 安装）、`stt/`（本地 STT 文本）（gitignore） |
-| `models/faster-whisper/` | 模型下载目录 |
+| `models/faster-whisper/` | faster-whisper 模型下载目录 |
+| `models/sensevoice/` | SenseVoice 模型目录（int8 约 240MB + silero-VAD），gitignore |
 | `.env.example` / `.env` | 配置模板 / 实际配置（gitignore） |
 
 ## API
 
-- `GET /api/health` — 后端 / Admin / faster-whisper / 监视用户状态
+- `GET /api/health` — 后端 / Admin / SenseVoice / faster-whisper / 监视用户状态
 - `GET /api/monitor/state` — 完整快照（config / jobs / logs）
 - `POST /api/monitor/command` — `monitor_connect_drive`（一次性 Drive 授权）
 - `GET /api/monitor/events` — SSE（snapshot / log 实时推送）
 
 ## 说明
 
-- 无 GPU 也能运行：faster-whisper 在 CPU 上自动 int8 量化。
+- 无 GPU 也能运行：SenseVoice-Small 用 ONNX int8、faster-whisper 用 CTranslate2 int8，都是纯 CPU 推理。
 - 监听只处理**新出现的**录音记录（跳过首次快照的存量文档与 `state: success` 记录）。
 - 服务进程就是监控程序：`nohup ./run-ubuntu.sh &` 或 systemd 可后台常驻；页面只是查看器。
 - 模型下载慢（国内网络）：`export HF_ENDPOINT=https://hf-mirror.com` 后重跑脚本。

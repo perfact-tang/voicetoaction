@@ -25,6 +25,7 @@ const els = {
   driveAccount: $("driveAccount"),
   driveFolder: $("driveFolder"),
   whisperModel: $("whisperModel"),
+  sttEngine: $("sttEngine"),
   connectDriveBtn: $("connectDriveBtn"),
   driveHint: $("driveHint"),
   statusLine: $("statusLine"),
@@ -99,6 +100,11 @@ function renderSnapshot(snapshot) {
   els.driveAccount.classList.toggle("bad", !config.driveAccountEmail);
   els.driveFolder.textContent = config.driveFolderId || "（未设置）";
   els.whisperModel.textContent = config.whisperModel || "-";
+  if (els.sttEngine) {
+    const engine = config.sttEngine === "faster-whisper" ? "faster-whisper" : "SenseVoice-Small";
+    els.sttEngine.textContent = `${engine}${config.sttEngine === "faster-whisper" ? "" : config.senseVoiceReady ? "" : "（不可用，回退中）"}`;
+    els.sttEngine.classList.toggle("bad", config.sttEngine !== "faster-whisper" && !config.senseVoiceReady);
+  }
   els.connectDriveBtn.disabled = !config.oauthClientConfigured;
   els.driveHint.textContent = config.oauthClientConfigured
     ? config.driveAccountEmail

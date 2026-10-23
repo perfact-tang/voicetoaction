@@ -91,10 +91,12 @@ if [[ $SKIP_INSTALL -eq 0 ]]; then
   fi
 
   # ------------------------------------------------------------
-  # 5. faster-whisper 转录后端
+  # 5. STT 转录后端（SenseVoice-Small 默认 + faster-whisper 回退）
   # ------------------------------------------------------------
-  if [[ -x .venv/bin/python ]] && .venv/bin/python -c "import faster_whisper" >/dev/null 2>&1; then
-    log "faster-whisper 后端已就绪。"
+  if [[ -x .venv/bin/python ]] \
+    && .venv/bin/python -c "import sherpa_onnx" >/dev/null 2>&1 \
+    && .venv/bin/python -c "import faster_whisper" >/dev/null 2>&1; then
+    log "STT 后端已就绪（SenseVoice + faster-whisper）。"
   else
     # 需要创建/修复 .venv：先保证 python3 能创建带 pip 的虚拟环境
     if ! python3 -c "import ensurepip" >/dev/null 2>&1; then
@@ -114,8 +116,14 @@ if [[ $SKIP_INSTALL -eq 0 ]]; then
       .venv/bin/python /tmp/mediasplitter-get-pip.py
       rm -f /tmp/mediasplitter-get-pip.py
     fi
-    log "安装 faster-whisper 转录后端..."
-    npm run setup:faster-whisper
+    if ! .venv/bin/python -c "import faster_whisper" >/dev/null 2>&1; then
+      log "安装 faster-whisper（回退引擎）..."
+      npm run setup:faster-whisper
+    fi
+    if ! .venv/bin/python -c "import sherpa_onnx" >/dev/null 2>&1; then
+      log "安装 SenseVoice 后端（sherpa-onnx）并下载模型..."
+      npm run setup:sensevoice
+    fi
   fi
 else
   log "--no-install 模式：跳过所有安装检查。"

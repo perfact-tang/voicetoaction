@@ -5,14 +5,15 @@
  *  - Firestore collectionGroup("recordings") 自动监听（启动即开始，无需手动）
  *  - 只处理 .env 中 MONITOR_USER_IDS 指定的用户（文档字段 MONITOR_USER_ID_FIELD）的录音
  *  - GCS 音频下载（admin.storage）、Firestore 回写（state: success/failed）
- * 流水线：监听新记录 → 入队 → 下载 GCS 音频 → FFmpeg 转 16k wav → faster-whisper 转录
+ * 流水线：监听新记录 → 入队 → 下载 GCS 音频 → FFmpeg 转 16k wav → STT 转录
+ *        （默认 SenseVoice-Small；语种不支持 / 后端不可用时回退 faster-whisper）
  *        → sidecar 创建 Google Doc → 回写 Firestore。
  *
  * 本进程（node server.js）就是"声音监控程序"本体：Web 页面只是查看器，
  * 页面开不开都不影响监听与处理。
  */
 import admin from "firebase-admin";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -30,6 +31,7 @@ import {
   runSkillWithResume
 } from "./monitor-skills.js";
 import { sendJobNotification } from "./monitor-notify.js";
+import { describeFallback, normalizeSttEngine, resolveSttEngine } from "./scripts/stt-engines.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)));
 const dataDir = join(projectRoot, "monitor-data");
@@ -54,7 +56,9 @@ const driveTokenPath = join(dataDir, "drive", "oauth-token.json");
 const sidecarScript = join(projectRoot, "monitor-sidecar", "index.js");
 const venvPython = join(projectRoot, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
 const transcribeScript = join(projectRoot, "scripts", "faster_whisper_transcribe.py");
+const senseVoiceScript = join(projectRoot, "scripts", "sensevoice_transcribe.py");
 const modelDir = join(projectRoot, "models", "faster-whisper");
+const senseVoiceModelDir = join(projectRoot, "models", "sensevoice");
 
 const FASTER_MODELS = ["tiny", "base", "small", "medium", "large-v3", "distil-large-v3"];
 /**
@@ -73,6 +77,19 @@ const ACTIVE_STAGES = [
   "running_skill"
 ];
 const RUNNING_STAGES = ["reading_text", "transcribing", "creating_doc", "installing_skill", "running_skill"];
+/**
+ * 兜底对账周期（毫秒）。Firestore 的 onSnapshot 是一条长连接，实测会静默卡死：
+ * 2026-10-24 开机后约 18 分钟没有任何回调、也没有触发 error 回调，这期间 App 上传的
+ * 录音完全不会被发现。因此按固定周期重扫「未处理」记录并补入队列；0 表示关闭。
+ * 重扫只读 uploadState=UPLOADED 的文档（每个监视用户一次查询），量级很小。
+ */
+const RECONCILE_MS = Number(process.env.MONITOR_RECONCILE_MS ?? 60000);
+/**
+ * 启动时是否重试上一次失败的本地任务。默认关闭：是否重跑由 Firestore 文档的
+ * state 决定（failed 视为终态），避免一条永久失败的录音每次重启都重跑一遍。
+ * 需要恢复旧的自愈行为时设 MONITOR_RETRY_FAILED=1。
+ */
+const RETRY_FAILED_ON_START = /^(1|true|yes)$/i.test(String(process.env.MONITOR_RETRY_FAILED ?? ""));
 const MAX_LOGS = 200;
 /** 单条 skill 输出回写 Firestore 的最大长度，避免文档超过 1MB。 */
 const MAX_SKILL_OUTPUT_CHARS = 30000;
@@ -206,6 +223,11 @@ const state = {
     monitoredUsers: [],
     userIdField: "uid",
     whisperModel: "faster:small",
+    /** STT 引擎：sensevoice（默认）/ faster-whisper。 */
+    sttEngine: "sensevoice",
+    senseVoiceModelDir,
+    /** SenseVoice 推理线程数（0 = 由 Python 端取 min(4, CPU)）。 */
+    senseVoiceThreads: 0,
     // ---- Skills（DeepSeek Harness）----
     skillsDir: defaultSkillsDir,
     skillsRunnerBin: "aiskillsrunner",
@@ -224,8 +246,14 @@ const state = {
   admin: null,
   db: null,
   listener: null,
+  /** 兜底对账的定时器与并发闸门（长连接卡死时补扫用）。 */
+  reconcileTimer: null,
+  reconciling: false,
+  reconcileLogged: false,
   adminError: null,
   driveAccountEmail: null,
+  /** SenseVoice 后端探测结果（启动时一次；不可用则整条流水线走 faster-whisper）。 */
+  senseVoice: { ready: false, modelReady: false, detail: "未探测" },
   jobs: [],
   monitoring: true,
   sidecar: null,
@@ -249,6 +277,9 @@ function defaultSnapshot() {
       driveAccountEmail: state.driveAccountEmail,
       driveFolderId: state.config.driveFolderId || null,
       whisperModel: state.config.whisperModel,
+      sttEngine: state.config.sttEngine,
+      senseVoiceReady: state.senseVoice.ready,
+      senseVoiceDetail: state.senseVoice.detail,
       oauthClientConfigured: Boolean(state.config.oauthClientPath && existsSync(state.config.oauthClientPath)),
       skillsDir: state.config.skillsDir,
       skillsRunnerBin: state.config.skillsRunnerBin,
@@ -333,6 +364,34 @@ function deriveUserId(documentPath, data) {
   return segments.length ? segments[segments.length - 1] : "";
 }
 
+/** 把 Firestore 文档映射成入队记录（监听与兜底对账共用同一套字段映射）。 */
+function recordForDocument(data, path, documentId) {
+  return {
+    documentPath: path,
+    documentId,
+    recordFile: data.storageUri || data.recordFile || "",
+    // kind === "Markdown" 时 recordFile 是 md 文本文件，后续跳过 STT。
+    kind: data.kind || "",
+    projectId: data.projectID || state.config.projectId,
+    language: data.language || "",
+    aicallingid: data.aicallingid || null,
+    // CMS 服务身份：serviceType=deepseek_harness 时走 Skills 流程，否则走 Google Drive。
+    serviceId: data.serviceId || null,
+    serviceType: data.serviceType || null,
+    userId: deriveUserId(path, data)
+  };
+}
+
+/** 文档级终态：success 已处理完成，failed 为永久失败（不再自动重跑）。 */
+function isTerminalState(value) {
+  return value === "success" || value === "failed";
+}
+
+/** 入队记录对应的任务 id（同一个 Firestore 文档只对应一个任务）。 */
+function jobIdFor(record) {
+  return `${state.config.projectId}::${String(record.documentPath || "").replace(/\//g, "_")}`;
+}
+
 function startListener() {
   if (!state.db || state.listener) return;
   let initialized = false;
@@ -345,36 +404,22 @@ function startListener() {
           if (change.type !== "added" && change.type !== "modified") continue;
           const data = change.doc.data() || {};
           const path = change.doc.ref.path;
-          const userId = deriveUserId(path, data);
+          const record = recordForDocument(data, path, change.doc.id);
 
-          if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(userId)) {
-            if (initialized) log(`跳过（非监视用户 ${userId || "(空)"}）：${path}`);
+          if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(record.userId)) {
+            if (initialized) log(`跳过（非监视用户 ${record.userId || "(空)"}）：${path}`);
             continue;
           }
-          const recordFile = data.storageUri || data.recordFile || "";
-          if (data.state === "success") {
-            if (initialized) log(`跳过（已处理成功）：${path}`);
+          if (isTerminalState(data.state)) {
+            if (initialized) log(`跳过（已处理 ${data.state}）：${path}`);
             continue;
           }
-          if (!isGsUrl(recordFile)) {
+          if (!isGsUrl(record.recordFile)) {
             if (initialized) log(`跳过（recordFile 非 gs:// URL）：${path}`);
             continue;
           }
           if (!initialized) pendingSeen += 1;
-          enqueueRecord({
-            documentPath: path,
-            documentId: change.doc.id,
-            recordFile,
-            // kind === "Markdown" 时 recordFile 是 md 文本文件，后续跳过 STT。
-            kind: data.kind || "",
-            projectId: data.projectID || state.config.projectId,
-            language: data.language || "",
-            aicallingid: data.aicallingid || null,
-            // CMS 服务身份：serviceType=deepseek_harness 时走 Skills 流程，否则走 Google Drive。
-            serviceId: data.serviceId || null,
-            serviceType: data.serviceType || null,
-            userId
-          });
+          enqueueRecord(record);
         }
         if (!initialized) {
           initialized = true;
@@ -393,11 +438,75 @@ function startListener() {
   log(`Firestore 监听已自动启动（collectionGroup: recordings；监视用户: ${users}）`);
 }
 
+/**
+ * 兜底对账：长连接卡死时，靠周期查询把「已上传但没被监听到」的记录补进队列。
+ * 与监听回调共用同样的过滤规则（非监视用户 / 终态 / 非 gs:// 一律跳过），
+ * 并通过 enqueueRecord 的既有去重逻辑保证不会重复建任务。
+ */
+async function reconcilePendingRecords() {
+  if (!state.db || state.reconciling) return null;
+  state.reconciling = true;
+  try {
+    const users = state.config.monitoredUsers.length ? state.config.monitoredUsers : [null];
+    let scanned = 0;
+    let queued = 0;
+    let failed = 0;
+    for (const userId of users) {
+      const source = userId
+        ? state.db.collection("users").doc(userId).collection("recordings")
+        : state.db.collectionGroup("recordings");
+      let snapshot;
+      try {
+        snapshot = await source.where("uploadState", "==", "UPLOADED").get();
+      } catch (error) {
+        failed += 1;
+        log(`兜底对账查询失败（${userId || "全部用户"}）：${error.message}`);
+        continue;
+      }
+      for (const doc of snapshot.docs) {
+        const data = doc.data() || {};
+        const record = recordForDocument(data, doc.ref.path, doc.id);
+        if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(record.userId)) continue;
+        if (isTerminalState(data.state)) continue;
+        if (!isGsUrl(record.recordFile)) continue;
+        scanned += 1;
+        const jobId = jobIdFor(record);
+        const before = state.jobs.find((job) => job.id === jobId);
+        const beforeStage = before ? before.stage : null;
+        enqueueRecord(record);
+        const after = state.jobs.find((job) => job.id === jobId);
+        // 只在「本次真正排入队列」时计数：新建任务，或失败任务被重新排队。
+        if (after && after.stage === "queued" && beforeStage !== "queued") queued += 1;
+      }
+    }
+    if (queued > 0 || !state.reconcileLogged) {
+      state.reconcileLogged = true;
+      const suffix = failed > 0 ? `，查询失败 ${failed} 个用户` : "";
+      log(`兜底对账：待处理 ${scanned} 条，入队 ${queued} 条${suffix}。`);
+    }
+    return { scanned, queued };
+  } finally {
+    state.reconciling = false;
+  }
+}
+
+function startReconcile() {
+  if (!state.db || state.reconcileTimer || !(RECONCILE_MS > 0)) return;
+  const tick = () => {
+    reconcilePendingRecords().catch((error) => log(`兜底对账失败：${error.message}`));
+  };
+  state.reconcileTimer = setInterval(tick, RECONCILE_MS);
+  if (typeof state.reconcileTimer.unref === "function") state.reconcileTimer.unref();
+  // 启动后立刻对一次账：监听初始快照可能已经漏掉记录（例如服务重启期间的卡死窗口）。
+  void tick();
+  log(`已启用兜底对账：每 ${Math.round(RECONCILE_MS / 1000)}s 重扫未处理录音（MONITOR_RECONCILE_MS=0 可关闭）`);
+}
+
 /* ---------------- 任务队列 ---------------- */
 
 function enqueueRecord(record) {
   const now = nowMs();
-  const id = `${state.config.projectId}::${String(record.documentPath || "").replace(/\//g, "_")}`;
+  const id = jobIdFor(record);
   let shouldSpawn = false;
 
   const duplicate = state.jobs.find(
@@ -471,8 +580,9 @@ function resumeInterruptedJobs() {
       job.errorMessage = "Previous processing was interrupted; queued again.";
       job.updatedAt = nowMs();
       changed = true;
-    } else if (job.stage === "failed") {
+    } else if (job.stage === "failed" && RETRY_FAILED_ON_START) {
       // 自愈：启动时自动重试失败任务（永久性错误会快速失败并保留原因）
+      // 默认关闭：失败记录以 Firestore 文档的 state=failed 为准，不随重启反复重跑。
       job.stage = "queued";
       job.progress = 0;
       job.errorMessage = null;
@@ -1175,12 +1285,28 @@ async function extractJobText(job, localPath) {
     log(`Markdown 输入（kind=${job.kind}）：跳过 STT，直接使用文本（${text.length} 字符）`);
     return text;
   }
-  const wavPath = localPath.replace(/\.[^/.]+$/, "") + ".whisper.wav";
+  const language = normalizeLanguage(job.language);
+  const wavPath = localPath.replace(/\.[^/.]+$/, "") + ".stt.wav";
   try {
     convertToWav(localPath, wavPath);
+    const choice = resolveSttEngine({
+      engine: state.config.sttEngine,
+      language,
+      senseVoiceReady: state.senseVoice.ready
+    });
+    const fallbackNote = describeFallback(choice.fallbackReason, language);
+    if (fallbackNote) log(fallbackNote);
+    if (choice.engine === "sensevoice") {
+      try {
+        return await transcribeWithSenseVoice({ audioPath: wavPath, language });
+      } catch (error) {
+        // 显式配置了 sensevoice 也不让任务失败：记录原因后回退，任务照常完成。
+        log(`SenseVoice 转录失败（${error.message}），本次回退 faster-whisper`);
+      }
+    }
     return await transcribeWithFasterWhisper({
       audioPath: wavPath,
-      language: normalizeLanguage(job.language),
+      language,
       model: state.config.whisperModel
     });
   } finally {
@@ -1203,19 +1329,13 @@ function convertToWav(sourcePath, outputPath) {
   );
 }
 
-function transcribeWithFasterWhisper({ audioPath, language, model }) {
+/**
+ * 跑一个 STT 子进程，返回它最后一行 JSON。
+ * 两个后端（faster-whisper / SenseVoice）的 stdout 约定一致：过程日志写 stderr。
+ */
+export function runSttScript(label, scriptPath, args) {
   return new Promise((resolvePromise, rejectPromise) => {
-    let modelName = model.replace("faster:", "");
-    if (modelName === "distil-large-v3" && language !== "en") modelName = "large-v3";
-    const args = [
-      transcribeScript,
-      "--audio", audioPath,
-      "--model", modelName,
-      "--language", language,
-      "--download-root", modelDir,
-      "--device", "auto"
-    ];
-    const child = spawn(venvPython, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(venvPython, [scriptPath, ...args], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
@@ -1223,19 +1343,85 @@ function transcribeWithFasterWhisper({ audioPath, language, model }) {
     child.on("error", rejectPromise);
     child.on("close", (code) => {
       if (code !== 0) {
-        rejectPromise(new Error(stderr.trim() || `faster-whisper exited with ${code}`));
+        rejectPromise(new Error(stderr.trim() || `${label} exited with ${code}`));
         return;
       }
       const lines = stdout.trim().split("\n").filter((line) => line.startsWith("{"));
       try {
-        const payload = JSON.parse(lines[lines.length - 1]);
-        const segments = Array.isArray(payload.segments) ? payload.segments : [];
-        resolvePromise(segments.map((segment) => segment.text).join("\n").trim());
+        resolvePromise(JSON.parse(lines[lines.length - 1]));
       } catch (error) {
-        rejectPromise(new Error(`无法解析转录结果: ${error.message}`));
+        rejectPromise(new Error(`无法解析 ${label} 转录结果: ${error.message}`));
       }
     });
   });
+}
+
+/** 两个后端的 segments 结构相同（text），这里只保留正文。 */
+export function joinSegmentText(payload) {
+  const segments = Array.isArray(payload.segments) ? payload.segments : [];
+  return segments.map((segment) => segment.text).join("\n").trim();
+}
+
+async function transcribeWithFasterWhisper({ audioPath, language, model }) {
+  let modelName = model.replace("faster:", "");
+  if (modelName === "distil-large-v3" && language !== "en") modelName = "large-v3";
+  const payload = await runSttScript("faster-whisper", transcribeScript, [
+    "--audio", audioPath,
+    "--model", modelName,
+    "--language", language,
+    "--download-root", modelDir,
+    "--device", "auto"
+  ]);
+  return joinSegmentText(payload);
+}
+
+async function transcribeWithSenseVoice({ audioPath, language }) {
+  const args = [
+    "--audio", audioPath,
+    "--language", language,
+    "--model-dir", state.config.senseVoiceModelDir
+  ];
+  if (state.config.senseVoiceThreads > 0) {
+    args.push("--threads", String(state.config.senseVoiceThreads));
+  }
+  const payload = await runSttScript("SenseVoice", senseVoiceScript, args);
+  const runtime = payload.runtime || {};
+  log(
+    `SenseVoice 完成：${(payload.segments || []).length} 句, ` +
+      `音频 ${Math.round((runtime.audioMs || 0) / 1000)}s / 解码 ${((runtime.decodeMs || 0) / 1000).toFixed(1)}s ` +
+      `(RTF ${runtime.rtf ?? "-"}, vad=${runtime.vad || "-"})`
+  );
+  return joinSegmentText(payload);
+}
+
+/** 启动时探测一次 SenseVoice（只查 python 包；模型缺失会在首次转录时自动下载）。 */
+export function probeSenseVoice(modelDirOverride) {
+  const args = ["--probe", "--no-download"];
+  const directory = modelDirOverride || state.config.senseVoiceModelDir;
+  if (directory) args.push("--model-dir", directory);
+  let result;
+  try {
+    result = spawnSync(venvPython, [senseVoiceScript, ...args], { encoding: "utf8", timeout: 30_000 });
+  } catch (error) {
+    return { ready: false, modelReady: false, detail: error.message };
+  }
+  if (result.status !== 0) {
+    return {
+      ready: false,
+      modelReady: false,
+      detail: (result.stderr || result.stdout || "sherpa-onnx 导入失败").trim()
+    };
+  }
+  try {
+    const payload = JSON.parse(String(result.stdout || "").trim().split("\n").pop());
+    return {
+      ready: true,
+      modelReady: Boolean(payload.modelReady),
+      detail: payload.detail || "SenseVoice 可用"
+    };
+  } catch {
+    return { ready: false, modelReady: false, detail: "无法解析 SenseVoice 探测结果" };
+  }
 }
 
 /* ---------------- sidecar（Drive） ---------------- */
@@ -1385,6 +1571,11 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
     monitoredUsers: Array.isArray(config?.monitoredUsers) ? config.monitoredUsers : [],
     userIdField: config?.userIdField || "uid",
     whisperModel: normalizeWhisperModel(config?.whisperModel),
+    sttEngine: normalizeSttEngine(config?.sttEngine),
+    senseVoiceModelDir: config?.senseVoiceModelDir || senseVoiceModelDir,
+    senseVoiceThreads: Number.isFinite(Number(config?.senseVoiceThreads))
+      ? Math.max(0, Math.trunc(Number(config?.senseVoiceThreads)))
+      : 0,
     skillsDir: config?.skillsDir || defaultSkillsDir,
     skillsRunnerBin: config?.skillsRunnerBin || "aiskillsrunner",
     skillsRunnerTimeoutMs: normalizeSkillsTimeout(config?.skillsRunnerTimeoutMs),
@@ -1406,6 +1597,18 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
   mkdirSync(state.config.skillsDir, { recursive: true });
   mkdirSync(state.config.sttOutputDir, { recursive: true });
 
+  // 启动时探测一次 STT 后端：结果决定本轮进程里每个任务走哪个引擎
+  state.senseVoice = probeSenseVoice(state.config.senseVoiceModelDir);
+  if (state.config.sttEngine === "sensevoice") {
+    log(
+      state.senseVoice.ready
+        ? `STT 引擎：SenseVoice-Small（${state.senseVoice.modelReady ? "模型就绪" : "模型待首次下载"}）`
+        : `STT 引擎：SenseVoice 不可用（${state.senseVoice.detail}），本进程回退 faster-whisper`
+    );
+  } else {
+    log(`STT 引擎：faster-whisper（${state.config.whisperModel}）`);
+  }
+
   loadJobs();
   loadDriveEmail();
   // 确保 Drive token 目录存在（oauth-token.json 的父目录），避免写入时报 ENOENT
@@ -1414,6 +1617,7 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
   // 自动启动监听（无论 Web 页面是否打开，服务进程即监控程序本体）
   if (initializeAdmin()) {
     startListener();
+    startReconcile();
     resumeInterruptedJobs();
     scheduleQueue();
     state.started = true;
@@ -1436,6 +1640,14 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
       }
     },
     close: () => {
+      if (state.reconcileTimer) {
+        try {
+          clearInterval(state.reconcileTimer);
+        } catch {
+          // ignore
+        }
+        state.reconcileTimer = null;
+      }
       if (state.listener && typeof state.listener === "function") {
         try {
           state.listener();

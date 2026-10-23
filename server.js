@@ -9,6 +9,7 @@ import { initMonitor } from "./monitor.js";
 const root = process.cwd();
 const publicDir = join(root, "public");
 const transcribeScript = join(root, "scripts", "faster_whisper_transcribe.py");
+const senseVoiceScript = join(root, "scripts", "sensevoice_transcribe.py");
 const windows = process.platform === "win32";
 const venvPython = join(root, ".venv", windows ? "Scripts/python.exe" : "bin/python");
 
@@ -176,6 +177,11 @@ const monitorConfig = {
   monitoredUsers: splitList(process.env.MONITOR_USER_IDS),
   userIdField: process.env.MONITOR_USER_ID_FIELD || "uid",
   whisperModel: process.env.WHISPER_MODEL || "faster:small",
+  // ---- STT 引擎（默认 SenseVoice-Small；不支持的语言自动回退 faster-whisper）----
+  sttEngine: process.env.STT_ENGINE || "sensevoice",
+  senseVoiceModelDir: process.env.SENSEVOICE_MODEL_DIR || join(root, "models", "sensevoice"),
+  // 0 = 由 Python 端取 min(4, CPU 核数)
+  senseVoiceThreads: process.env.SENSEVOICE_THREADS || null,
   // ---- Skills（DeepSeek Harness）----
   // 默认 <root>/monitor-data/skills：只给本后端用，不污染 ~/.agents/skills
   skillsDir: process.env.SKILLS_DIR || join(root, "monitor-data", "skills"),
@@ -243,7 +249,7 @@ function collectBody(req) {
   });
 }
 
-/* ---------- faster-whisper 后端探测 ---------- */
+/* ---------- STT 后端探测（faster-whisper / SenseVoice） ---------- */
 
 function pythonProbe() {
   if (!existsSync(venvPython)) {
@@ -262,6 +268,39 @@ function pythonProbe() {
     };
   }
   return { ready: true, reason: "ok", detail: "faster-whisper 可用" };
+}
+
+/** SenseVoice：ready = sherpa-onnx 能导入（模型缺失时首次转录会自动下载）。 */
+function senseVoiceProbe() {
+  if (!existsSync(venvPython)) {
+    return { ready: false, reason: "no-venv", modelReady: false, detail: ".venv 不存在，请先运行 npm run setup:sensevoice" };
+  }
+  const result = spawnSync(
+    venvPython,
+    [senseVoiceScript, "--probe", "--no-download", "--model-dir", monitorConfig.senseVoiceModelDir],
+    { encoding: "utf8", timeout: 30_000 }
+  );
+  if (result.status !== 0) {
+    return {
+      ready: false,
+      reason: "probe-failed",
+      modelReady: false,
+      detail: (result.stderr || result.stdout || "sherpa-onnx 导入失败").trim()
+    };
+  }
+  try {
+    const payload = JSON.parse(String(result.stdout || "").trim().split("\n").pop());
+    return {
+      ready: true,
+      reason: payload.modelReady ? "ok" : "model-missing",
+      modelReady: Boolean(payload.modelReady),
+      vadReady: Boolean(payload.vadReady),
+      version: payload.version || null,
+      detail: payload.detail
+    };
+  } catch {
+    return { ready: false, reason: "probe-failed", modelReady: false, detail: "无法解析 SenseVoice 探测结果" };
+  }
 }
 
 /* ---------- Monitor（SSE 广播） ---------- */
@@ -285,13 +324,16 @@ const monitor = initMonitor({
 
 function handleHealth(_req, res) {
   const probe = pythonProbe();
+  const sensevoice = senseVoiceProbe();
   const state = monitor.getState();
   sendJson(res, 200, {
     ok: true,
     app: "mediasplitter-ai",
     node: process.version,
     platform: process.platform,
+    sttEngine: state.config.sttEngine,
     fasterWhisper: probe,
+    sensevoice,
     adminReady: state.adminReady,
     adminError: state.adminError,
     projectId: state.config.projectId,
@@ -392,11 +434,19 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, host, () => {
   const probe = pythonProbe();
-  console.log(`faster-whisper backend: ${probe.ready ? "ready" : "NOT READY — " + probe.detail}`);
+  const sensevoice = senseVoiceProbe();
   const state = monitor.getState();
+  if (state.config.sttEngine === "sensevoice") {
+    console.log(
+      `STT 引擎: SenseVoice-Small ${sensevoice.ready ? "(sherpa-onnx ready" + (sensevoice.modelReady ? "" : ", 模型待下载") + ")" : "NOT READY — " + sensevoice.detail}`
+    );
+  } else {
+    console.log(`STT 引擎: faster-whisper（${state.config.whisperModel}）`);
+  }
+  console.log(`faster-whisper backend: ${probe.ready ? "ready" : "NOT READY — " + probe.detail}（回退用）`);
   console.log(`Firebase Admin: ${state.adminReady ? "ready (project " + state.config.projectId + ")" : "NOT READY — " + state.adminError}`);
   console.log(`监视用户: ${state.config.monitoredUsers.length ? state.config.monitoredUsers.join(", ") : "（全部）"} | 用户字段: ${state.config.userIdField}`);
-  console.log(`Drive: ${state.config.driveAccountEmail || "未授权（请打开页面点一次 Connect Google）"} | 模型: ${state.config.whisperModel}`);
+  console.log(`Drive: ${state.config.driveAccountEmail || "未授权（请打开页面点一次 Connect Google）"} | 回退模型: ${state.config.whisperModel}`);
   announceStartup();
 });
 

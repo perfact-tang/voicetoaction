@@ -1,13 +1,16 @@
 {
   "name": "mediasplitter-ai",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "VoiceToAction AI Monitor: Firebase Admin (service account) auto-listening + faster-whisper + Google Docs pipeline.",
+  "description": "VoiceToAction AI Monitor: Firebase Admin (service account) auto-listening + SenseVoice-Small / faster-whisper STT + Google Docs pipeline.",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "setup:faster-whisper": "node scripts/setup-python-backend.js requirements-faster-whisper.txt"
+    "setup:faster-whisper": "node scripts/setup-python-backend.js requirements-faster-whisper.txt",
+    "setup:sensevoice": "node scripts/setup-python-backend.js requirements-sensevoice.txt && node scripts/download-sensevoice-model.js",
+    "setup:stt": "npm run setup:faster-whisper && npm run setup:sensevoice",
+    "test": "node scripts/stt-engine.test.mjs && node scripts/stt-sensevoice.test.mjs && node scripts/skill-resume.test.mjs"
   },
   "engines": {
     "node": ">=20"

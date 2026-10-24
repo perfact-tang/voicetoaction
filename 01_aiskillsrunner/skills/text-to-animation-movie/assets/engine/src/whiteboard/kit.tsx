@@ -409,28 +409,30 @@ export const ArrowHead: React.FC<{
 };
 
 /* ------------------------------------------------------------------ */
-/* Hand + pen                                                          */
+/* Pen                                                                 */
 /* ------------------------------------------------------------------ */
 
-export type HandKey = { at: number; x: number; y: number; skip?: boolean };
+export type PenKey = { at: number; x: number; y: number; skip?: boolean };
+/** @deprecated Kept so older scene files that import `HandKey` still compile. */
+export type HandKey = PenKey;
 
 /**
- * A hand holding a marker, authored so the nib is exactly the local origin.
+ * Fountain pen that draws the scene.
  *
- * The artwork is deliberately simple and flat: a rounded fist, two chunky
- * fingers and a sleeve. It replaced an earlier "realistic" version whose thin,
- * disconnected finger strokes read as a claw at video size. Everything here is
- * drawn up and to the right of the nib, so the anchor never has to be offset.
+ * The artwork is the user-supplied pen SVG, with its nib placed exactly at the
+ * local origin so the tip can never drift off the animated anchor. The pen
+ * points up and to the right at 45°, which keeps the ink and the marks being
+ * made visible under the nib.
  *
- * `mode="pen"` draws only the marker (useful for a calmer, ghost-writing look).
+ * There is deliberately no hand: at video size the drawn hand read as a claw,
+ * and a fountain pen alone is a cleaner, calmer whiteboard look.
  */
-export const Hand: React.FC<{
-  keys: HandKey[];
+export const Pen: React.FC<{
+  keys: PenKey[];
   hidden?: boolean;
   scale?: number;
   opacity?: number;
-  mode?: "hand" | "pen";
-}> = ({ keys, hidden = false, scale = 1, opacity = 1, mode = "hand" }) => {
+}> = ({ keys, hidden = false, scale = 1, opacity = 1 }) => {
   const frame = useCurrentFrame();
 
   const track = (values: number[]): number => {
@@ -468,82 +470,53 @@ export const Hand: React.FC<{
     extrapolateRight: "clamp",
   });
 
-  // A very small sway keeps the arm alive without moving the nib off its mark.
-  const tilt = -3 + Math.sin(frame / 14) * 1.1;
-  const s = 0.72 * scale;
-
-  const pen = (
-    <g>
-      {/* ink tip + metal collar */}
-      <path d="M 0 0 L 26 -16 L 34 -8 L 8 7 Z" fill="#2b313b" />
-      <path d="M 0 0 C 5 -3 8 -4 11 -3 L 8 4 Z" fill="#101318" />
-      <path d="M 30 -16 L 40 -22 L 46 -10 L 36 -4 Z" fill="#98a1b0" />
-      {/* barrel */}
-      <path
-        d="M 42 -20 L 268 -169 Q 286 -181 296 -165 Q 306 -150 288 -139 L 54 -1 Q 40 8 33 -5 Q 26 -18 42 -20 Z"
-        fill="#2f3642"
-      />
-      <path d="M 72 -42 L 248 -152" stroke="#6a7486" strokeWidth={5} strokeLinecap="round" opacity={0.6} />
-    </g>
-  );
+  // A barely-there sway; the nib stays locked on the anchor because the whole
+  // pen rotates/scales about its local origin.
+  const tilt = -2 + Math.sin(frame / 14) * 1.2;
+  const s = 1.6 * scale;
 
   return (
     <g transform={`translate(${x} ${y})`} opacity={fadeIn * fadeOut}>
       <g transform={`rotate(${tilt}) scale(${s})`}>
-        {pen}
-        {mode === "hand" ? (
-          <g transform="translate(80 -52)">
-            {/* soft cast shadow */}
-            <g transform="translate(9 14)" opacity={0.07}>
-              <path
-                d="M 87 -68 C 140 -105 200 -145 250 -172 C 300 -200 350 -205 385 -170 C 415 -140 430 -90 438 -40 C 448 20 440 70 410 100 C 380 128 340 138 300 130 C 260 122 230 100 200 70 C 160 30 120 -20 87 -68 Z"
-                fill="#3a3026"
-              />
-            </g>
-            {/* sleeve, fading out so the arm never has to leave the frame */}
-            <path
-              d="M 424 50 L 590 292 Q 612 330 578 346 Q 546 362 524 330 L 330 112 Z"
-              fill="url(#sleeveFade)"
-            />
-            {/* back of the hand */}
-            <path
-              d="M 87 -68 C 130 -100 180 -132 230 -162 C 272 -187 312 -204 344 -192 C 380 -178 404 -138 420 -88 C 436 -38 442 14 424 54 C 406 94 368 118 330 116 C 306 114 286 104 268 90 C 246 100 224 102 206 92 C 186 80 174 58 162 38 C 146 12 128 -18 106 -40 C 96 -50 90 -60 87 -68 Z"
-              fill="#eebd93"
-            />
-            {/* curled middle / ring fingers tucked under the palm */}
-            <path
-              d="M 168 40 C 142 48 132 72 144 94 C 156 116 186 122 206 108 C 220 98 222 78 214 64 C 202 46 186 36 168 40 Z"
-              fill="#eab68a"
-            />
-            <path
-              d="M 208 70 C 188 86 186 112 200 132 C 214 152 244 154 260 138 C 272 126 270 104 260 90 C 246 72 226 62 208 70 Z"
-              fill="#eebd93"
-            />
-            <path d="M 208 78 C 220 90 222 106 214 120" stroke="#d9a172" strokeWidth={4.5} fill="none" strokeLinecap="round" />
-            <path d="M 258 102 C 270 114 272 128 264 140" stroke="#d9a172" strokeWidth={4.5} fill="none" strokeLinecap="round" />
-            {/* cuff */}
-            <path d="M 424 50 L 449 88 L 355 152 L 330 112 Z" fill="#aebfd4" />
-            <path d="M 436 70 L 368 118" stroke="#93a7c1" strokeWidth={4} fill="none" strokeLinecap="round" opacity={0.8} />
-            {/* index finger, pressing the top of the barrel */}
-            <path
-              d="M 206 -178 C 174 -150 128 -110 90 -74 C 72 -58 64 -40 78 -32 C 92 -24 110 -34 124 -46 C 160 -76 198 -108 222 -126 C 232 -146 226 -172 206 -178 Z"
-              fill="#f2c9a4"
-            />
-            <ellipse cx={88} cy={-54} rx={12} ry={18} transform="rotate(-42 88 -54)" fill="#f9ddc4" />
-            <path d="M 186 -146 C 178 -128 166 -112 150 -98" stroke="#e0ad84" strokeWidth={4.5} fill="none" strokeLinecap="round" />
-            {/* thumb, pressing the near side */}
-            <path
-              d="M 316 -120 C 282 -122 226 -94 182 -72 C 152 -58 122 -48 108 -38 C 92 -28 90 -10 106 0 C 122 10 146 2 164 -10 C 200 -32 244 -48 286 -56 C 310 -62 322 -84 320 -104 C 319 -112 318 -118 316 -120 Z"
-              fill="#f2c9a4"
-            />
-            <ellipse cx={110} cy={-21} rx={12} ry={17} transform="rotate(24 110 -21)" fill="#f9ddc4" />
-            <path d="M 280 -68 C 288 -54 286 -38 274 -28" stroke="#e0ad84" strokeWidth={4.5} fill="none" strokeLinecap="round" />
-          </g>
-        ) : null}
+        {/*
+          Original geometry: a 200x200 viewBox, pen vertical, nib tip at (0,85)
+          inside `translate(100,100) rotate(45)`. Combining the transforms puts
+          that tip at (0,0) and points the body up-right:
+            translate(60.104 -60.104) rotate(45)
+        */}
+        <g transform="translate(60.104 -60.104) rotate(45)">
+          {/* barrel */}
+          <rect x={-12} y={-80} width={24} height={110} rx={6} fill="url(#pen-body)" />
+          {/* clip */}
+          <path
+            d="M 0 -80 L 20 -75 L 20 -40 L 12 -40 L 12 -70 L 0 -70 Z"
+            fill="#94a3b8"
+            stroke="#475569"
+            strokeWidth={1}
+          />
+          {/* gold trim ring */}
+          <rect x={-13} y={28} width={26} height={6} rx={2} fill="url(#pen-ring)" />
+          {/* nib base */}
+          <path d="M -12 34 L 12 34 L 8 60 L -8 60 Z" fill="url(#pen-tip)" />
+          {/* nib */}
+          <path d="M -8 60 L 8 60 L 0 85 Z" fill="#d4d4d8" stroke="#71717a" strokeWidth={0.5} />
+          {/* slit, breather hole, ink */}
+          <line x1={0} y1={60} x2={0} y2={80} stroke="#3f3f46" strokeWidth={1} />
+          <circle cx={0} cy={65} r={1.5} fill="#3f3f46" />
+          <circle cx={0} cy={84} r={1.2} fill="#1e293b" />
+          {/* barrel highlight */}
+          <rect x={-6} y={-75} width={4} height={95} rx={2} fill="#ffffff" opacity={0.15} />
+        </g>
       </g>
     </g>
   );
 };
+
+/**
+ * Backwards-compatible alias for scene files written against the old API.
+ * New scenes should use `<Pen>`.
+ */
+export const Hand = Pen;
 
 /* ------------------------------------------------------------------ */
 /* Caption driven by the real narration timing                         */

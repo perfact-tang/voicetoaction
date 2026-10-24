@@ -8,8 +8,8 @@
  *   - `art`: the SVG drawn on paper
  *   - `keys`: where the pen tip travels, as `{ at, x, y }` frames
  *
- * The hand is authored so its nib sits exactly on (x, y), so anchors should
- * point at the ink that is appearing at that frame.
+ * The fountain pen is authored so its nib sits exactly on (x, y), so anchors
+ * should point at the ink that is appearing at that frame.
  *
  * Everything comes from the shared whiteboard kit — see references/02-scenes.md
  * for the full API.
@@ -18,9 +18,9 @@
 import React from "react";
 import { Easing, interpolate, useCurrentFrame } from "remotion";
 import {
-  type HandKey,
+  type PenKey,
   type LineCue,
-  Hand,
+  Pen,
   Label,
   Lines,
   P,
@@ -36,7 +36,7 @@ export type SceneProps = {
   seed: number;
 };
 
-type Visual = (p: SceneProps) => { art: React.ReactNode; keys: HandKey[] };
+type Visual = (p: SceneProps) => { art: React.ReactNode; keys: PenKey[] };
 
 const wob = (n: number) => `url(#sketch-wobble-${((n - 1) % 3) + 1})`;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -115,7 +115,7 @@ const vTitle: Visual = ({ durationInFrames }) => {
       { at: 6, x: 220, y: 660 },
       { at: Math.round(durationInFrames * 0.45), x: 860, y: 1040 },
       { at: Math.round(durationInFrames * 0.75), x: 540, y: 820 },
-    ] as HandKey[],
+    ] as PenKey[],
   };
 };
 
@@ -128,14 +128,6 @@ const VISUALS: Record<string, Visual> = {
 };
 
 export const SCENE_VISUALS = Object.keys(VISUALS);
-
-/**
- * Whole-video switch for the drawing hand.
- *   "hand" = the friendly flat hand holding the marker (default)
- *   "pen"  = the marker only; a calmer, ghost-writing look
- * Change this one line if the hand still feels too busy for a particular film.
- */
-const HAND_MODE: "hand" | "pen" = "pen";
 
 export const Scenes: React.FC<SceneProps & { visual: string }> = (props) => {
   const visual = VISUALS[props.visual];
@@ -156,7 +148,7 @@ export const Scenes: React.FC<SceneProps & { visual: string }> = (props) => {
         style={{ position: "absolute", left: 0, top: 0 }}
       >
         {art}
-        <Hand keys={keys} mode={HAND_MODE} />
+        <Pen keys={keys} />
       </svg>
       <Lines lines={props.lines} />
     </Paper>

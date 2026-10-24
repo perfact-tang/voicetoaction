@@ -39,18 +39,23 @@ export const SketchDefs: React.FC = () => (
         <filter id="sketch-soft" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="9" />
         </filter>
-        {/* Sleeve of the drawing hand; coordinates are the hand's local space. */}
-        <linearGradient
-          id="sleeveFade"
-          gradientUnits="userSpaceOnUse"
-          x1={430}
-          y1={60}
-          x2={620}
-          y2={340}
-        >
-          <stop offset="0" stopColor="#b7c6da" stopOpacity={1} />
-          <stop offset="0.55" stopColor="#b7c6da" stopOpacity={0.85} />
-          <stop offset="1" stopColor="#b7c6da" stopOpacity={0} />
+        {/* Fountain-pen gradients (from the pen artwork, renamed to avoid clashes). */}
+        <linearGradient id="pen-body" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#1e293b" />
+          <stop offset="30%" stopColor="#475569" />
+          <stop offset="50%" stopColor="#94a3b8" />
+          <stop offset="70%" stopColor="#475569" />
+          <stop offset="100%" stopColor="#0f172a" />
+        </linearGradient>
+        <linearGradient id="pen-tip" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="50%" stopColor="#eab308" />
+          <stop offset="100%" stopColor="#a16207" />
+        </linearGradient>
+        <linearGradient id="pen-ring" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#9ca3af" />
+          <stop offset="50%" stopColor="#f3f4f6" />
+          <stop offset="100%" stopColor="#6b7280" />
         </linearGradient>
       </defs>
     </svg>

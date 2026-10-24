@@ -8,7 +8,7 @@ description: >-
   默认 9:16 竖屏、手绘风格；也可按指示文改成其它画幅。
 metadata:
   category: Content
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # 文本 → 手绘讲解动画 → 上传
@@ -308,7 +308,7 @@ python3 scripts/build_audio.py --dry-run
 必须先阅读 [references/02-scenes.md](references/02-scenes.md)（白板引擎的完整 API 与常见画法）。
 
 在 `$DOC_DIR/engine/src/scenes.tsx` 的 `VISUALS` 里为 `script.json` 用到的每个 `visual`
-实现一个插图，并在 `HandKey[]` 里给出笔尖轨迹（笔尖就是 `x, y`，应指向该帧正在出现的那一笔）。
+实现一个插图，并在 `PenKey[]` 里给出笔尖轨迹（笔尖就是 `x, y`，应指向该帧正在出现的那一笔）。
 
 **这一步必须实际看图，不能只靠想象。** 用统一入口渲染静帧（它自动带对
 `--gl` / 超时参数，别手写 `npx remotion still`）：
@@ -323,7 +323,7 @@ bash scripts/render.sh still <帧号> "$DOC_DIR/check/S01.png"
 
 1. 文字有没有超出画幅边缘（1080 宽，居中文字左右各留 80px 安全边距）；
 2. 文字有没有超出它所在的卡片/方框（CJK 全角字宽 ≈ 字号 × 1.0）；
-3. 手有没有盖住正在讲的文字或关键标记（手在笔尖的**右上方**，约 380×340px）；
+3. 钢笔有没有盖住正在讲的文字或关键标记（笔身从笔尖向右上 45° 伸出，约 300×300px）；
 4. 有没有渲染出 `Label` 文字（漏了通常是把它放在了 SVG 元素内部之外的坐标）。
 
 发现问题改 `scenes.tsx` 再渲染，直到 20 多场都干净。
@@ -364,8 +364,8 @@ bash scripts/render.sh movie out/movie.mp4
   6 核 12 线程，无独显）：
   - 旧参数（`swangle` + 每帧重算一层不可见的全屏纸纹滤镜）：**约 0.8–0.9 秒/帧**，
     2 分钟片子要 40–50 分钟；
-  - 新参数（删掉纸纹滤镜 + `--gl=angle`）：**约 0.13–0.17 秒/帧**，3443 帧约 **8–10 分钟**。
-  - `egl` / `swiftshader` 在这台机器上会丢笔画（手会少手指），**不能用**；
+  - 新参数（删掉纸纹滤镜 + `--gl=angle`）：**约 0.12–0.16 秒/帧**，3443 帧约 **7–9 分钟**。
+  - `egl` / `swiftshader` 在这台机器上会丢笔画（线条/笔身会缺块），**不能用**；
     `angle` 画面与 `swangle` 一致，别凭「headless 就该用 swangle」的经验改回去。
     个别机器 `angle` 起不来时，才用 `GL=swangle bash scripts/render.sh movie` 兜底
     （会慢一些，但画面正确）。

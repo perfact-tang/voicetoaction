@@ -8,7 +8,7 @@ description: >-
   默认 9:16 竖屏、手绘风格；也可按指示文改成其它画幅。
 metadata:
   category: Content
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # 文本 → 手绘讲解动画 → 上传
@@ -162,8 +162,9 @@ MeloTTS 调参：`MELOTTS_SPEAKER`（默认 1）、`MELOTTS_SPEED`（1.0）、`M
   它们还没写完的文件不会落盘 —— 但退出码依然是 `0`，调用方会误以为成功。
 - 因此：**在 Step7 上传成功、Step8 输出最终报告之前，绝对不要结束回合。**
   也不要把「稍等 / 正在等待 / Progress so far」这类中间状态当作回合结尾。
-- 渲染很慢（2 分钟动画在 4 核机器上约 8–15 分钟）：用 `run_in_background: true` 起渲染是允许的，
-  但**必须在同一回合内**用 `job_output(wait: true)` 取回结果再继续，不要以「等通知」收尾。
+- 渲染仍然偏慢（2–3 分钟成片在 6 核机器上约 **8–12 分钟**，见 Step5）：用
+  `run_in_background: true` 起渲染是允许的，但**必须在同一回合内**用
+  `job_output(wait: true)` 取回结果再继续，不要以「等通知」收尾。
 - 需要并行时只用**前台阻塞**的子代理（`run_in_background: false`），取回结果后再往下走。
 
 ---
@@ -214,6 +215,37 @@ mkdir -p "$DOC_DIR"
 | 时长 | 约 2–3 分钟（台词 480–700 字） | 「控制在 N 分钟」→ 按 3.55 字/秒反推字数 |
 | 语言 | 中文 | 指示文指定的语言 |
 | 帧率 | 30fps | 一般无需修改 |
+
+---
+
+## 2.5 准备渲染工程（整目录复制，只做一次）
+
+`$DOC_DIR/engine` 是本次的渲染工程，必须从 skill 的 `assets/engine` **整目录**复制
+（含 `public/`；配音音轨会生成在那里）：
+
+```bash
+# 本 SKILL.md 所在目录；runner 会通过 AISKILLSRUNNER_SKILLS_DIR 给出安装根目录
+SKILL_ROOT="${AISKILLSRUNNER_SKILLS_DIR:-$HOME/.agents/skills}"
+SKILL_DIR="$SKILL_ROOT/text-to-animation-movie"
+if [ ! -f "$SKILL_DIR/SKILL.md" ]; then
+  SKILL_DIR=$(find "$HOME/.agents/skills" "$HOME/.dsh/skills" \
+    "$SKILL_ROOT" "$PWD/monitor-data/skills" "$PWD/.agents/skills" "$PWD/.dsh/skills" \
+    -maxdepth 2 -type d -name text-to-animation-movie 2>/dev/null | head -n 1)
+fi
+[ -f "$SKILL_DIR/SKILL.md" ] || { echo "找不到 text-to-animation-movie 的 skill 目录" >&2; exit 1; }
+echo "SKILL_DIR=$SKILL_DIR"
+
+mkdir -p "$DOC_DIR/engine"
+cp -r "$SKILL_DIR/assets/engine/." "$DOC_DIR/engine/"
+
+# 首次运行要装 Remotion（约 800MB）；装过就跳过
+cd "$DOC_DIR/engine"
+[ -d node_modules ] || npm install --no-audit --no-fund
+```
+
+- **不要**把依赖装回 skill 目录（skill 可能只读，而且会被下一次安装覆盖）。
+- 同一 DocID 重跑时复用已有 `engine/`，**不要**再 `cp` 覆盖已经写好的 `script.json`。
+- 下面所有 `cd "$DOC_DIR/engine"` 的命令都假设这一步已经完成。
 
 ---
 
@@ -278,18 +310,20 @@ python3 scripts/build_audio.py --dry-run
 在 `$DOC_DIR/engine/src/scenes.tsx` 的 `VISUALS` 里为 `script.json` 用到的每个 `visual`
 实现一个插图，并在 `HandKey[]` 里给出笔尖轨迹（笔尖就是 `x, y`，应指向该帧正在出现的那一笔）。
 
-**这一步必须实际看图，不能只靠想象。** 渲染静帧检查：
+**这一步必须实际看图，不能只靠想象。** 用统一入口渲染静帧（它自动带对
+`--gl` / 超时参数，别手写 `npx remotion still`）：
 
 ```bash
 cd "$DOC_DIR/engine"
-npx remotion still src/index.ts Explainer "$DOC_DIR/check/S01.png" --frame=<帧号>
+bash scripts/render.sh still <帧号> "$DOC_DIR/check/S01.png"
+# 例如 410 → check/S01.png；一次检查多场就换帧号多跑几次
 ```
 
 逐场检查这四件事：
 
 1. 文字有没有超出画幅边缘（1080 宽，居中文字左右各留 80px 安全边距）；
 2. 文字有没有超出它所在的卡片/方框（CJK 全角字宽 ≈ 字号 × 1.0）；
-3. 手有没有盖住正在讲的文字或关键标记；
+3. 手有没有盖住正在讲的文字或关键标记（手在笔尖的**右上方**，约 380×340px）；
 4. 有没有渲染出 `Label` 文字（漏了通常是把它放在了 SVG 元素内部之外的坐标）。
 
 发现问题改 `scenes.tsx` 再渲染，直到 20 多场都干净。
@@ -322,16 +356,27 @@ python3 scripts/build_audio.py
 
 ```bash
 cd "$DOC_DIR/engine"
-# 首次运行需要下载 Headless Chrome（约 100MB）
-npx remotion browser ensure
-npx remotion render src/index.ts Explainer out/movie.mp4 \
-    --codec=h264 --crf=17 --pixel-format=yuv420p --concurrency=8
+# 统一入口：自动选 --gl / 并发 / 编码参数，首次会下载 Headless Chrome（约 100MB）
+bash scripts/render.sh movie out/movie.mp4
 ```
 
-- `--concurrency` **直接决定总时长**：每帧都在算 SVG 滤镜，是纯 CPU 开销。
-  12 核机器实测 **8 比 4 快约 40%**（5038 帧 @8 = 66 分钟；3652 帧 @4 = 64 分钟）。
-  取 `min(8, 核数 - 2)`；内存 8GB 以下减半。渲染期间别同时跑别的重活。
-- 渲染耗时长（约 1 小时），允许后台运行，但**必须在同一回合内取回结果**（见 1.5）。
+- **不要手写 `npx remotion render`**，也不要改回 `swangle`。实测本机（i7-8700T，
+  6 核 12 线程，无独显）：
+  - 旧参数（`swangle` + 每帧重算一层不可见的全屏纸纹滤镜）：**约 0.8–0.9 秒/帧**，
+    2 分钟片子要 40–50 分钟；
+  - 新参数（删掉纸纹滤镜 + `--gl=angle`）：**约 0.13–0.17 秒/帧**，3443 帧约 **8–10 分钟**。
+  - `egl` / `swiftshader` 在这台机器上会丢笔画（手会少手指），**不能用**；
+    `angle` 画面与 `swangle` 一致，别凭「headless 就该用 swangle」的经验改回去。
+    个别机器 `angle` 起不来时，才用 `GL=swangle bash scripts/render.sh movie` 兜底
+    （会慢一些，但画面正确）。
+- 并发对这类 SVG 合成几乎不线性：一帧本身就能吃满所有核，`4` 以上没有明显收益。
+  `scripts/render.sh` 默认 `min(4, 核数)`；内存小于 8GB 时设 `CONCURRENCY=2`。
+- 渲染仍然要几分钟，允许后台运行，但**必须在同一回合内**用 `job_output(wait: true)`
+  取回结果（见 1.5），不要以「等通知」收尾。
+- 想先小样验证（不渲染全片）：
+  ```bash
+  FRAMES=900-1019 bash scripts/render.sh movie out/preview.mp4
+  ```
 - 完成后把成品复制到工作目录：
   ```bash
   cp out/movie.mp4 "$DOC_DIR/movie.mp4"
@@ -343,6 +388,22 @@ npx remotion render src/index.ts Explainer out/movie.mp4 \
     -of default=noprint_wrappers=1 "$DOC_DIR/movie.mp4"
   ```
   宽高、帧数必须与 `script.json` 一致；时长应与 `--dry-run` 的预估相差不大。
+
+### 还想更快？
+
+按性价比从高到低：
+
+1. **先确认用的是 `scripts/render.sh`**（去纸纹 + `--gl=angle`）——这一步已经把
+   40–50 分钟降到 ~10 分钟。
+2. **降帧率**：`script.json` 的 `fps` 从 30 改成 24，帧数少 20%，画面仍然算顺；
+   时长/字幕由 `build_audio.py` 按 fps 重算，改完必须重跑 Step4。
+3. **降分辨率再放大**：`--scale=0.75`（720×1280）配 ffmpeg 拉回 1080×1920，大约再快
+   1.2–1.3 倍，但线条会略软，**成品请优先保清晰度**。
+4. **换执行环境**：Remotion Lambda（云端并行，秒级出片，按量计费）或一台带 GPU 的机器
+   （`--gl=angle` 会走硬件），代码不用改。
+5. **非 Remotion 路线**：把每帧导出成 SVG、用 `@resvg/resvg-js`（Rust，无浏览器）栅格化，
+   再交给 ffmpeg 编码。理论上能到毫秒级/帧，但要把 `kit.tsx` 的 React 组件重写成
+   字符串模板 + 时间轴，属于另起一套引擎；**除非渲染量很大，不建议现在做**。
 
 ---
 
@@ -374,9 +435,11 @@ npx remotion render src/index.ts Explainer out/movie.mp4 \
 ## 9. Step7 — 上传（**只调用 1 次** `upload-movie.sh`）
 
 ```bash
-SKILL_DIR="$HOME/.agents/skills/text-to-animation-movie"
+SKILL_ROOT="${AISKILLSRUNNER_SKILLS_DIR:-$HOME/.agents/skills}"
+SKILL_DIR="$SKILL_ROOT/text-to-animation-movie"
 if [ ! -f "$SKILL_DIR/scripts/upload-movie.sh" ]; then
-  SKILL_DIR=$(find "$HOME/.agents/skills" "$HOME/.dsh/skills" "$PWD/.agents/skills" "$PWD/.dsh/skills" \
+  SKILL_DIR=$(find "$HOME/.agents/skills" "$HOME/.dsh/skills" "$SKILL_ROOT" \
+    "$PWD/monitor-data/skills" "$PWD/.agents/skills" "$PWD/.dsh/skills" \
     -maxdepth 2 -type d -name text-to-animation-movie 2>/dev/null | head -n 1)
 fi
 bash "$SKILL_DIR/scripts/upload-movie.sh" "$DOCID" "$DOC_DIR/movie.mp4" --note "$DOC_DIR/动画说明.json"
@@ -473,6 +536,7 @@ text-to-animation-movie/
 │   ├── remotion.config.ts
 │   ├── tsconfig.json
 │   ├── scripts/build_audio.py
+│   ├── scripts/render.sh        # 唯一渲染入口（still / movie）
 │   └── src/{Root.tsx,Video.tsx,scenes.tsx,sketchDefs.tsx,data,whiteboard}
 └── scripts/
     ├── upload-movie.js           # Storage 上传 + Firestore note + FCM

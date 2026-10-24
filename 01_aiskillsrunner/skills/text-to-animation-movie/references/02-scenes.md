@@ -55,7 +55,7 @@ y=1920 └───────────────────────�
 - **左右各留 80px**：居中文字的实际半宽 `len × size / 2` 不能超过 460。
   CJK 全角字宽 ≈ 字号 × 1.0，英文/数字 ≈ × 0.55。混合时按字符分别算。
 - 插图尽量不要伸到 y > 1300，否则容易和字幕卡片打架。
-- 手占的画面大约 260×400px，方向是**向右上方**张开。锚点放在插图左下或下方时，
+- 手占的画面大约 **380×340px**（笔尖在左下角，手向右上方张开）。锚点放在插图左下或下方时，
   手会盖到右上方的元素；把锚点放在元素**右下侧**最安全。
 
 ## 3. 原语速查
@@ -64,7 +64,7 @@ y=1920 └───────────────────────�
 
 | API | 说明 |
 |---|---|
-| `<Paper seed durationInFrames>` | 米白纸底 + 纸纹 + 边缘随手痕迹 + 场景淡入淡出。`Scenes` 已经包好了，一般不用手写 |
+| `<Paper seed durationInFrames>` | 米白纸底 + 边缘随手痕迹 + 场景淡入淡出。`Scenes` 已经包好了，一般不用手写 |
 | `<Title text accent seed at>` | 顶部标题 + 手绘下划线 |
 | `<Label x y text at size color align mono rotate opacity>` | **文字必须用它**，它是 SVG `<text>`。`at` 控制弹出时间，`align` 取 `left/center/right` |
 | `<Lines lines accent bottom size>` | 底部字幕卡片，由 `Scenes` 自动挂载，不要手写 |
@@ -83,11 +83,20 @@ y=1920 └───────────────────────�
 | `<ArrowHead x y angle at color size>` | 箭头，`angle` 是弧度 |
 | `<Dot x y r at color fill>` | 圆点，`at` 控制弹出 |
 | `<SketchBox x y w h at color fill rotate radius seed>` | 手绘圆角矩形框 |
-| `<Hand keys hidden scale opacity>` | 握笔的手；`Scenes` 已自动挂载 |
+| `<Hand keys hidden scale opacity mode>` | 握笔的手；`Scenes` 已自动挂载，不用手写。全片开关是 `scenes.tsx` 底部的 `HAND_MODE`：`"hand"`（默认）或 `"pen"`（只画马克笔） |
 | `wob(n)` 本地小工具 | 返回 `url(#sketch-wobble-N)`，给 `<rect>` 等原生 SVG 元素加手抖 |
 
 `filter={wob(1)}` 只对**大**元素加（框、卡片、云）；小图标不加也能看，加了会更慢。
 本地只定义了 `wob(n)`（把 n 折回 1..3）；需要别的 id 直接写 `url(#sketch-wobble-N)`，N 取 1..3。
+
+> **不要自己重画手。** 手（`kit.tsx` 的 `Hand`）是一套固定的平涂插画，已经为成片尺寸
+> 重做过：手掌 + 食指 + 拇指 + 卷起的两根手指，笔尖严格在 `(0,0)`。早期那种细杆手指
+> 在 1080 宽的画面里会像爪子，别再改回去。手的位置不合适时，改 `keys` 的锚点
+> （尽量放在元素右下角），或者把 `scenes.tsx` 里的 `HAND_MODE` 改成 `"pen"`，
+> 不要改手本身。
+>
+> **不要**再加全屏 `<feTurbulence>` 纸纹：它会被不透明的纸底盖住、根本看不见，
+> 却会让渲染慢 3–4 倍（见 SKILL.md Step5）。
 
 ### 颜色
 

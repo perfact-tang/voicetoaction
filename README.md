@@ -252,8 +252,9 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 
 > ⚠️ **视频渲染类 skill 要留足时间。** `text-to-animation-movie` 是单回合执行：
 > 装依赖 + 分镜静帧检查约 8 分钟，Remotion 渲染 1080×1920 / 30fps 的 2–3 分钟成片
-> 还要十几分钟以上，30 分钟会在渲染中途被杀（成片与上传都拿不到）。
-> 这类 skill 建议把 `SKILLS_RUNNER_TIMEOUT_MS` 设到 `5400000`（1.5 小时）或更大。
+> 约 **8–12 分钟**（删掉不可见的纸纹滤镜 + `--gl=angle` 后比旧版快约 4 倍，见该 skill 的
+> 「渲染速度」）。加上上传与通知，建议把 `SKILLS_RUNNER_TIMEOUT_MS` 设到
+> `5400000`（1.5 小时）——默认值够用，不要把超时压到 30 分钟。
 
 > 🎙️ **配音依赖 MeloTTS（可选但强烈建议）。** `text-to-animation-movie` 会自己探测本机
 > 有没有 MeloTTS：有就用它（中文自然），没有才回退 `espeak-ng`（机械音），都没有则纯字幕。

@@ -8,7 +8,10 @@
 - **默认 9:16 竖屏 1080×1920，手绘白板风格**；指示文里写了画幅就按指示文改。
 - 先把文本拆成论证链、再写台词、再画分镜 —— 不把文章按小标题逐段翻译成画面。
 - 台词用 TTS 配音，并输出**与配音逐行对齐**的 `.lrc` 字幕文件。
-- 用 Remotion 在本机渲染成 MP4（无需云端渲染服务）。
+- 用 Remotion 在本机渲染成 MP4（无需云端渲染服务）。一支 2–3 分钟成片约 **8–12 分钟**
+  （6 核机器），比旧版本快 4 倍左右，见「渲染速度」。
+- 画面里的**手已经重做成平涂插画**：手掌 + 食指 + 拇指 + 卷起的指节，笔尖严格落在锚点上；
+  也可以一键改成只画马克笔（`mode="pen"`）。
 - 目标执行环境是 **Ubuntu**；配音**默认用 edge-tts**（微软在线 TTS，音色平稳自然，
   合成时需联网），没网时回退本地 MeloTTS，再不行回退 `espeak-ng`，都没有时退化为纯字幕版。
 - 工作目录按 **DocID** 组织：`~/Documents/tmpaiskill/<DocID>/`。
@@ -29,7 +32,8 @@ text-to-animation-movie/
 ├── assets/engine/                 # 每次复制到工作目录的 Remotion 工程模板
 │   └── scripts/
 │       ├── build_audio.py         # 配音 + 时间轴（自动判定 MeloTTS / espeak）
-│       └── melo_tts.py            # MeloTTS 批处理 worker（模型只加载一次）
+│       ├── melo_tts.py            # MeloTTS 批处理 worker（模型只加载一次）
+│       └── render.sh              # 唯一渲染入口（still / movie，已调好参数）
 └── scripts/
     ├── upload-movie.js            # Storage 上传 + Firestore note + FCM
     ├── upload-movie.sh            # 上面的安全封装（校验参数与依赖）
@@ -180,6 +184,41 @@ DSH_PERMISSION_MODE=danger-full-access \
 └── engine/          # 本次的渲染工程（含 source，可复现）
 ```
 
+## 渲染速度
+
+渲染工程里只有两个入口，别自己拼 `npx remotion` 参数：
+
+```bash
+cd <DocID>/engine
+bash scripts/render.sh movie out/movie.mp4          # 全片
+bash scripts/render.sh still 410 check/S01.png      # 单帧检查
+FRAMES=900-1019 bash scripts/render.sh movie out/preview.mp4   # 小样
+```
+
+旧版本的瓶颈不是并发，而是**每一帧都在重算一层覆盖整个 1080×1920 的 `<feTurbulence>`
+「纸纹」**——它被不透明的纸底盖住，**从来没显示出来**，但 Chrome 仍然逐帧计算，
+一帧就吃满所有核，加并发没有意义，2 分钟片子要 40–50 分钟。现在：
+
+| 改动 | 效果 |
+|---|---|
+| 删掉这层不可见的全屏纸纹滤镜 | 约 3–4× 提速，画面完全不变 |
+| Chromium GL 从 `swangle` 换成 `angle` | 约 1.7× 提速，画面一致 |
+| 并发默认 `min(4, 核数)` | 再往上没有收益，只多占内存 |
+| **合计** | i7-8700T（6 核 12 线程、无独显）：3443 帧约 **8–10 分钟** |
+
+> ⚠️ 不要用 `--gl=egl` / `--gl=swiftshader`：在这类无 GPU 的 Linux 上会**静默丢笔画**
+> （手会少手指）。也不要为了「更像手绘」再加全屏 SVG 纸纹滤镜——
+> 那层东西根本不显示，却是上一版慢几倍的根因。
+
+还想更快时的选项（按性价比）：
+
+1. **`fps: 30 → 24`**：帧数少 20%，观感基本不变，改完要重跑 `build_audio.py`。
+2. **`--scale=0.75` 再 ffmpeg 放大**：再快约 1.2–1.3 倍，线条会略软，不建议用于成品。
+3. **Remotion Lambda / 带 GPU 的机器**：代码不用改，云端并行可到分钟级；按量计费。
+4. **非 Remotion 路线**：每帧导出 SVG → `@resvg/resvg-js`（Rust、无浏览器）栅格化 →
+   ffmpeg 编码。理论上是毫秒/帧，但要把 `kit.tsx` 的 React 场景重写成字符串模板，
+   等于另做一套引擎，只有渲染量非常大时才值得。
+
 ## 上传
 
 ```bash
@@ -226,6 +265,10 @@ AISKILLS_FCM_TOPIC=all bash scripts/upload-movie.sh 1759700000000 ./movie.mp4 \
 - **失败即报告，不要重复上传**：`upload-movie.sh` 每次只执行一次上传。
 - **FCM 失败不影响上传**：Storage 与 Firestore 成功后，通知失败只打印告警。
 - 渲染需要约 1GB 磁盘（`node_modules` + Headless Chrome），首次运行会下载 Chrome。
+- **渲染只走 `scripts/render.sh`**：参数（`--gl=angle`、并发、编码）已经调好，
+  手写 `npx remotion render` 很容易把速度打回 40 分钟。
+- **手不要重画**：`kit.tsx` 里的 `Hand` 是重做过的平涂插画；不合适就调锚点 /
+  `hidden` / `mode="pen"`。细杆手指在成片尺寸下会像爪子，是上一版的主要问题。
 - 配音后端由 `build_audio.py` 自动判定：找到能 `import melo` 的解释器就用 **MeloTTS**，
   否则回退 `espeak-ng`，都没有时退化成**纯字幕版**；报告里必须写明用的是哪个。
 - 分镜必须**实际渲染静帧检查**：文字超框、手遮文字是最常见的两类问题。

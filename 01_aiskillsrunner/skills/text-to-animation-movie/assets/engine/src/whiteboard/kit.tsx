@@ -415,17 +415,22 @@ export const ArrowHead: React.FC<{
 export type HandKey = { at: number; x: number; y: number; skip?: boolean };
 
 /**
- * A hand holding a pen, authored so the pen tip is the local origin. The hand
- * is drawn up and to the right of it, resting on the paper beside the ink, and
- * the whole group is translated onto the animated (x, y) anchor. That way every
- * drawing in every scene is aimed at the mark the pen is supposedly making.
+ * A hand holding a marker, authored so the nib is exactly the local origin.
+ *
+ * The artwork is deliberately simple and flat: a rounded fist, two chunky
+ * fingers and a sleeve. It replaced an earlier "realistic" version whose thin,
+ * disconnected finger strokes read as a claw at video size. Everything here is
+ * drawn up and to the right of the nib, so the anchor never has to be offset.
+ *
+ * `mode="pen"` draws only the marker (useful for a calmer, ghost-writing look).
  */
 export const Hand: React.FC<{
   keys: HandKey[];
   hidden?: boolean;
   scale?: number;
   opacity?: number;
-}> = ({ keys, hidden = false, scale = 1, opacity = 1 }) => {
+  mode?: "hand" | "pen";
+}> = ({ keys, hidden = false, scale = 1, opacity = 1, mode = "hand" }) => {
   const frame = useCurrentFrame();
 
   const track = (values: number[]): number => {
@@ -463,141 +468,78 @@ export const Hand: React.FC<{
     extrapolateRight: "clamp",
   });
 
-  // subtle idle motion so the arm never looks frozen
-  const bob = Math.sin(frame / 9) * 2;
-  const tilt = -8 + Math.sin(frame / 13) * 1.6;
-  const s = 0.55 * scale;
+  // A very small sway keeps the arm alive without moving the nib off its mark.
+  const tilt = -3 + Math.sin(frame / 14) * 1.1;
+  const s = 0.72 * scale;
 
-  /*
-   * The artwork below is authored in a local space whose origin is exactly the
-   * pen tip: it points down-left and the hand sits up and to the right, resting
-   * on the paper beside the ink. Translating to the animated anchor first, then
-   * rotating/scaling about the origin, keeps the nib locked on the anchor
-   * without relying on `transform-origin` (which SVG ignores).
-   */
+  const pen = (
+    <g>
+      {/* ink tip + metal collar */}
+      <path d="M 0 0 L 26 -16 L 34 -8 L 8 7 Z" fill="#2b313b" />
+      <path d="M 0 0 C 5 -3 8 -4 11 -3 L 8 4 Z" fill="#101318" />
+      <path d="M 30 -16 L 40 -22 L 46 -10 L 36 -4 Z" fill="#98a1b0" />
+      {/* barrel */}
+      <path
+        d="M 42 -20 L 268 -169 Q 286 -181 296 -165 Q 306 -150 288 -139 L 54 -1 Q 40 8 33 -5 Q 26 -18 42 -20 Z"
+        fill="#2f3642"
+      />
+      <path d="M 72 -42 L 248 -152" stroke="#6a7486" strokeWidth={5} strokeLinecap="round" opacity={0.6} />
+    </g>
+  );
+
   return (
     <g transform={`translate(${x} ${y})`} opacity={fadeIn * fadeOut}>
       <g transform={`rotate(${tilt}) scale(${s})`}>
-        <g transform={`translate(0 ${bob})`}>
-          {/* cuff, trailing off the bottom-right of the frame */}
-          <path
-            d={smoothPath([
-              [402, 224],
-              [470, 320],
-              [524, 400],
-            ])}
-            fill="none"
-            stroke="#3b4252"
-            strokeWidth={112}
-            strokeLinecap="round"
-          />
-          {/* forearm, running down-right from the wrist */}
-          <path
-            d={smoothPath([
-              [286, 24],
-              [340, 110],
-              [386, 196],
-            ])}
-            fill="none"
-            stroke="#eec49f"
-            strokeWidth={92}
-            strokeLinecap="round"
-          />
-          {/* fist wrapped around the barrel */}
-          <path
-            d={smoothPath([
-              [178, -22],
-              [96, 8],
-              [72, 86],
-              [118, 130],
-              [200, 102],
-            ], true)}
-            fill="#eec49f"
-            stroke="#d5a377"
-            strokeWidth={3.5}
-            filter="url(#sketch-wobble-1)"
-          />
-          {/* thumb, creeping along the barrel toward the nib */}
-          <path
-            d={smoothPath([
-              [86, 30],
-              [130, 2],
-              [214, -90],
-            ])}
-            fill="none"
-            stroke="#eec49f"
-            strokeWidth={42}
-            strokeLinecap="round"
-          />
-          {/* the pen: a single straight stroke ending exactly at the origin,
-              so the nib can never drift off the anchor */}
-          <path
-            d={smoothPath([
-              [440, -266],
-              [0, 0],
-            ])}
-            fill="none"
-            stroke="#242a34"
-            strokeWidth={40}
-            strokeLinecap="round"
-          />
-          {/* barrel highlight */}
-          <path
-            d={smoothPath([
-              [360, -220],
-              [70, -42],
-            ])}
-            fill="none"
-            stroke="#525a6b"
-            strokeWidth={9}
-            strokeLinecap="round"
-          />
-          {/* clip */}
-          <path
-            d={smoothPath([
-              [448, -272],
-              [500, -178],
-            ])}
-            fill="none"
-            stroke="#c9a227"
-            strokeWidth={12}
-            strokeLinecap="round"
-          />
-          {/* fingertips curling over the barrel */}
-          <path
-            d={smoothPath([
-              [206, 114],
-              [182, 52],
-              [150, -50],
-            ])}
-            fill="none"
-            stroke="#eec49f"
-            strokeWidth={34}
-            strokeLinecap="round"
-          />
-          <path
-            d={smoothPath([
-              [166, 124],
-              [146, 66],
-              [122, -30],
-            ])}
-            fill="none"
-            stroke="#eec49f"
-            strokeWidth={32}
-            strokeLinecap="round"
-          />
-          <path
-            d={smoothPath([
-              [130, 130],
-              [112, 72],
-              [90, -10],
-            ])}
-            fill="none"
-            stroke="#eec49f"
-            strokeWidth={29}
-            strokeLinecap="round"
-          />
-        </g>
+        {pen}
+        {mode === "hand" ? (
+          <g transform="translate(80 -52)">
+            {/* soft cast shadow */}
+            <g transform="translate(9 14)" opacity={0.07}>
+              <path
+                d="M 87 -68 C 140 -105 200 -145 250 -172 C 300 -200 350 -205 385 -170 C 415 -140 430 -90 438 -40 C 448 20 440 70 410 100 C 380 128 340 138 300 130 C 260 122 230 100 200 70 C 160 30 120 -20 87 -68 Z"
+                fill="#3a3026"
+              />
+            </g>
+            {/* sleeve, fading out so the arm never has to leave the frame */}
+            <path
+              d="M 424 50 L 590 292 Q 612 330 578 346 Q 546 362 524 330 L 330 112 Z"
+              fill="url(#sleeveFade)"
+            />
+            {/* back of the hand */}
+            <path
+              d="M 87 -68 C 130 -100 180 -132 230 -162 C 272 -187 312 -204 344 -192 C 380 -178 404 -138 420 -88 C 436 -38 442 14 424 54 C 406 94 368 118 330 116 C 306 114 286 104 268 90 C 246 100 224 102 206 92 C 186 80 174 58 162 38 C 146 12 128 -18 106 -40 C 96 -50 90 -60 87 -68 Z"
+              fill="#eebd93"
+            />
+            {/* curled middle / ring fingers tucked under the palm */}
+            <path
+              d="M 168 40 C 142 48 132 72 144 94 C 156 116 186 122 206 108 C 220 98 222 78 214 64 C 202 46 186 36 168 40 Z"
+              fill="#eab68a"
+            />
+            <path
+              d="M 208 70 C 188 86 186 112 200 132 C 214 152 244 154 260 138 C 272 126 270 104 260 90 C 246 72 226 62 208 70 Z"
+              fill="#eebd93"
+            />
+            <path d="M 208 78 C 220 90 222 106 214 120" stroke="#d9a172" strokeWidth={4.5} fill="none" strokeLinecap="round" />
+            <path d="M 258 102 C 270 114 272 128 264 140" stroke="#d9a172" strokeWidth={4.5} fill="none" strokeLinecap="round" />
+            {/* cuff */}
+            <path d="M 424 50 L 449 88 L 355 152 L 330 112 Z" fill="#aebfd4" />
+            <path d="M 436 70 L 368 118" stroke="#93a7c1" strokeWidth={4} fill="none" strokeLinecap="round" opacity={0.8} />
+            {/* index finger, pressing the top of the barrel */}
+            <path
+              d="M 206 -178 C 174 -150 128 -110 90 -74 C 72 -58 64 -40 78 -32 C 92 -24 110 -34 124 -46 C 160 -76 198 -108 222 -126 C 232 -146 226 -172 206 -178 Z"
+              fill="#f2c9a4"
+            />
+            <ellipse cx={88} cy={-54} rx={12} ry={18} transform="rotate(-42 88 -54)" fill="#f9ddc4" />
+            <path d="M 186 -146 C 178 -128 166 -112 150 -98" stroke="#e0ad84" strokeWidth={4.5} fill="none" strokeLinecap="round" />
+            {/* thumb, pressing the near side */}
+            <path
+              d="M 316 -120 C 282 -122 226 -94 182 -72 C 152 -58 122 -48 108 -38 C 92 -28 90 -10 106 0 C 122 10 146 2 164 -10 C 200 -32 244 -48 286 -56 C 310 -62 322 -84 320 -104 C 319 -112 318 -118 316 -120 Z"
+              fill="#f2c9a4"
+            />
+            <ellipse cx={110} cy={-21} rx={12} ry={17} transform="rotate(24 110 -21)" fill="#f9ddc4" />
+            <path d="M 280 -68 C 288 -54 286 -38 274 -28" stroke="#e0ad84" strokeWidth={4.5} fill="none" strokeLinecap="round" />
+          </g>
+        ) : null}
       </g>
     </g>
   );

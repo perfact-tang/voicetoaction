@@ -129,6 +129,14 @@ const VISUALS: Record<string, Visual> = {
 
 export const SCENE_VISUALS = Object.keys(VISUALS);
 
+/**
+ * Whole-video switch for the drawing hand.
+ *   "hand" = the friendly flat hand holding the marker (default)
+ *   "pen"  = the marker only; a calmer, ghost-writing look
+ * Change this one line if the hand still feels too busy for a particular film.
+ */
+const HAND_MODE: "hand" | "pen" = "pen";
+
 export const Scenes: React.FC<SceneProps & { visual: string }> = (props) => {
   const visual = VISUALS[props.visual];
   if (!visual) {
@@ -148,7 +156,7 @@ export const Scenes: React.FC<SceneProps & { visual: string }> = (props) => {
         style={{ position: "absolute", left: 0, top: 0 }}
       >
         {art}
-        <Hand keys={keys} />
+        <Hand keys={keys} mode={HAND_MODE} />
       </svg>
       <Lines lines={props.lines} />
     </Paper>

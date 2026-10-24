@@ -39,25 +39,27 @@ export const SketchDefs: React.FC = () => (
         <filter id="sketch-soft" x="-20%" y="-20%" width="140%" height="140%">
           <feGaussianBlur stdDeviation="9" />
         </filter>
-        {/*
-          Very light paper grain used on large fills. `sketch-wobble-*` is for
-          strokes; this one is for texture.
-        */}
-        <filter id="paper-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves={2} />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
+        {/* Sleeve of the drawing hand; coordinates are the hand's local space. */}
+        <linearGradient
+          id="sleeveFade"
+          gradientUnits="userSpaceOnUse"
+          x1={430}
+          y1={60}
+          x2={620}
+          y2={340}
+        >
+          <stop offset="0" stopColor="#b7c6da" stopOpacity={1} />
+          <stop offset="0.55" stopColor="#b7c6da" stopOpacity={0.85} />
+          <stop offset="1" stopColor="#b7c6da" stopOpacity={0} />
+        </linearGradient>
       </defs>
     </svg>
-    {/* paper grain overlay */}
-    <svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>
-      <rect
-        width="100%"
-        height="100%"
-        filter="url(#paper-grain)"
-        opacity={0.09}
-        style={{ mixBlendMode: "multiply" }}
-      />
-    </svg>
+    {/*
+      There used to be a full-screen <feTurbulence> "paper grain" layer here.
+      It sat behind the opaque <Paper> background, so it was never visible — but
+      Chrome still regenerated the noise for every 1080x1920 frame, which was
+      by far the biggest render cost (~0.7s/frame). Removed: the flat paper base
+      is what the video has always looked like, and frames are ~5x cheaper.
+    */}
   </AbsoluteFill>
 );

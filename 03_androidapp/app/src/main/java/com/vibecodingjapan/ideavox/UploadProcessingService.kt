@@ -76,8 +76,8 @@ class UploadProcessingService : Service() {
               process(ids, format, speed, language, mode)
             }
             .onSuccess { uploaded ->
-              if (applyBluetoothDefaults) BluetoothRecordingWorkflow.announceAutomaticUploadSuccess(applicationContext)
-              showUploadSuccessNotification(uploaded)
+              showUploadSuccessNotification(uploaded, automatic = applyBluetoothDefaults)
+              if (applyBluetoothDefaults) BluetoothRecordingWorkflow.releaseUploadControl(applicationContext)
             }
             .onFailure { error ->
               val message = if (error is CancellationException) "已取消" else error.message ?: "处理失败"
@@ -358,7 +358,7 @@ class UploadProcessingService : Service() {
       .build()
   }
 
-  private fun showUploadSuccessNotification(recording: RecordingItem) {
+  private fun showUploadSuccessNotification(recording: RecordingItem, automatic: Boolean = false) {
     val pending =
       PendingIntent.getActivity(
         this,
@@ -367,9 +367,9 @@ class UploadProcessingService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
     val notification =
-      NotificationCompat.Builder(this, UPLOAD_CHANNEL_ID)
+      NotificationCompat.Builder(this, UPLOAD_RESULT_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-        .setContentTitle("上传成功".localized(this))
+        .setContentTitle((if (automatic) "已上传" else "上传成功").localized(this))
         .setContentText(recording.name)
         .setContentIntent(pending)
         .setAutoCancel(true)
@@ -386,7 +386,7 @@ class UploadProcessingService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
       )
     val notification =
-      NotificationCompat.Builder(this, UPLOAD_CHANNEL_ID)
+      NotificationCompat.Builder(this, UPLOAD_RESULT_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_notify_error)
         .setContentTitle("上传失败".localized(this))
         .setContentText(message.localized(this).take(96))

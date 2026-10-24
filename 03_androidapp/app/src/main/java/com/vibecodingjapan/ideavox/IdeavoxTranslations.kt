@@ -205,6 +205,7 @@ internal object IdeavoxTranslations {
       // Upload flow
       "上传" to t("アップロード", "Upload", "업로드"),
       "上传处理" to t("アップロード処理", "Upload processing", "업로드 처리"),
+      "上传结果" to t("アップロード結果", "Upload result", "업로드 결과"),
       "上传方式" to t("アップロード方法", "Upload method", "업로드 방식"),
       "上传语言" to t("アップロード言語", "Upload language", "업로드 언어"),
       "音频倍速（会缩短时长）" to t("音声速度（再生時間が短くなります）", "Audio speed (shortens duration)", "오디오 배속(길이가 짧아짐)"),
@@ -229,6 +230,7 @@ internal object IdeavoxTranslations {
       "自动上传成功" to t("自動アップロードが完了しました", "Automatic upload successful", "자동 업로드가 완료되었습니다"),
       "自动上传已完成" to t("自動アップロードが完了しました", "Automatic upload completed", "자동 업로드가 완료되었습니다"),
       "上传成功" to t("アップロード完了", "Upload successful", "업로드 성공"),
+      "已上传" to t("アップロード済み", "Uploaded", "업로드 완료"),
       "上传失败" to t("アップロード失敗", "Upload failed", "업로드 실패"),
       "处理失败" to t("処理失敗", "Processing failed", "처리 실패"),
       "取消处理" to t("処理をキャンセル", "Cancel processing", "처리 취소"),

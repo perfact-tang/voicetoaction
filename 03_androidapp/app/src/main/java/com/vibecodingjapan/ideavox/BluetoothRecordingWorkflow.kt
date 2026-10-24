@@ -60,25 +60,6 @@ object BluetoothRecordingWorkflow {
     true
   }
 
-  fun announceAutomaticUploadSuccess(context: Context) {
-    scope.launch {
-      // A completed earlier upload must not interrupt a new control countdown
-      // or route preparation. Use the route that is active when feedback plays.
-      while (synchronized(lock) { phase != BluetoothGesturePhase.Idle }) delay(100L)
-      MandarinVoicePrompt.speak(
-        context.applicationContext,
-        "自动上传已完成",
-        useVoiceCommunication =
-          RecordingRuntime.activeInputIsBluetooth || BluetoothRecordingTelecom.hasActiveConnection(),
-        speechRate = 1.25f,
-      )
-      Log.i(TAG, "automatic upload success announcement queued")
-      // Let the glasses finish the success phrase before closing the kept SCO.
-      delay(3_000L)
-      releaseUploadControl(context)
-    }
-  }
-
   internal fun startDebugBluetoothRecording(context: Context): Boolean {
     if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0 ||
       RecordingRuntime.state.value.status != RecordingStatus.IDLE || BluetoothTouchDiagnostics.active ||
@@ -96,8 +77,8 @@ object BluetoothRecordingWorkflow {
 
   /**
    * Call-only single-double-tap start. The glasses send AT+BVRA once; do not
-   * ask for a second confirmation. Say "准备", open the direct SCO route and
-   * let RecordingService announce "开始录音" in the glasses.
+   * ask for a second confirmation. Open the direct SCO route and let
+   * RecordingService announce "开始录音" in the glasses.
    */
   fun startVoiceRecording(context: Context): Boolean {
     if (BluetoothTouchDiagnostics.active) return false
@@ -115,7 +96,6 @@ object BluetoothRecordingWorkflow {
       voiceCommandControl = true
     }
     Log.i(TAG, "voice single-tap start recording=$recordingId")
-    MandarinVoicePrompt.speak(appContext, "准备", useVoiceCommunication = false, speechRate = 1.4f)
     startAutomatedRecording(appContext, recordingId)
     return true
   }
@@ -225,15 +205,6 @@ object BluetoothRecordingWorkflow {
       } else if (announceStart && RecordingRuntime.state.value.activeRecordingId == recordingId && RecordingRuntime.state.value.status == RecordingStatus.RECORDING) {
         MandarinVoicePrompt.speak(context, "开始录音", useVoiceCommunication = bluetoothInput, speechRate = 1.25f)
         Log.i(TAG, "recording started announcement queued recording=$recordingId bluetooth=$bluetoothInput")
-        scope.launch {
-          delay(10_000L)
-          if (
-            RecordingRuntime.state.value.activeRecordingId == recordingId &&
-              RecordingRuntime.state.value.status == RecordingStatus.RECORDING
-          ) {
-            MandarinVoicePrompt.speak(context, "现在可以后滑结束", useVoiceCommunication = bluetoothInput, speechRate = 1.25f)
-          }
-        }
       }
     }
   }
@@ -273,7 +244,6 @@ object BluetoothRecordingWorkflow {
       }
       is BluetoothGestureEffect.StartAutomaticUpload -> {
         cancelConfirmation()
-        BluetoothConfirmationFeedback.playUploadConfirmed(context)
         startAutomaticUpload(context, effect.recordingId)
         voiceCommandControl = false
         if (usesTelecomControl) BluetoothRecordingTelecom.endFromApp()
@@ -526,11 +496,7 @@ object BluetoothRecordingWorkflow {
       }
       .onFailure { error ->
         Log.e(TAG, "Automatic bluetooth upload failed", error)
-        MandarinVoicePrompt.speak(
-          context,
-          "自动上传失败，${error.message ?: "请打开应用查看。"}",
-          useVoiceCommunication = false,
-        )
+        releaseUploadControl(context)
       }
   }
 
@@ -564,13 +530,6 @@ object BluetoothRecordingWorkflow {
           BluetoothConfirmationFeedback.cancel()
           voiceCommandControl = false
           if (releaseUploadOnExpiry) {
-            MandarinVoicePrompt.speak(
-              context.applicationContext,
-              "已取消上传",
-              useVoiceCommunication = RecordingRuntime.activeInputIsBluetooth,
-              speechRate = 1.25f,
-            )
-            delay(1_200L)
             releaseUploadControl(context)
           } else if (endTelecomOnExpiry) {
             BluetoothRecordingTelecom.endFromApp()
@@ -623,19 +582,9 @@ private object BluetoothConfirmationFeedback {
     }
   }
 
-  fun playUploadConfirmed(context: Context) {
-    cancel()
-    MandarinVoicePrompt.speak(
-      context,
-      "已开启上传",
-      useVoiceCommunication = RecordingRuntime.activeInputIsBluetooth,
-    )
-  }
-
   /**
-   * Spoken in the glasses while the kept SCO route is still active. The first
-   * cue is immediate; the second one is delayed until after the HFP volume-sync
-   * guard, so the user swipes when the upload gate is actually armed.
+   * Spoken in the glasses while the kept SCO route is still active. This is
+   * the only remaining upload-related voice cue.
    */
   fun startUploadSwipeConfirmation(context: Context) {
     countdownJob?.cancel()

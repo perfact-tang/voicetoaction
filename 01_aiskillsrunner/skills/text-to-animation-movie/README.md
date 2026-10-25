@@ -8,6 +8,8 @@
 - **默认 9:16 竖屏 1080×1920，手绘白板风格**；指示文里写了画幅就按指示文改。
 - 先把文本拆成论证链、再写台词、再画分镜 —— 不把文章按小标题逐段翻译成画面。
 - 台词用 TTS 配音，并输出**与配音逐行对齐**的 `.lrc` 字幕文件。
+- 配音**按场景连读**：同一场的 1–2 行先拼成一段话送进 TTS，场与场之间才留呼吸；
+  字幕行仍然是逐行的，边界按单独测量的行时长分配，不再一行一顿。
 - 用 Remotion 在本机渲染成 MP4（无需云端渲染服务）。一支 2–3 分钟成片约 **8–12 分钟**
   （6 核机器），比旧版本快 4 倍左右，见「渲染速度」。
 - 画图的是一支**金属钢笔**（用户提供的 SVG，笔尖严格落在锚点上，**默认不画手**）。
@@ -117,9 +119,14 @@ python3 scripts/build_audio.py --tts melo          # 强制本地 MeloTTS
    组合 —— 同一句在 speaker 1 上有声、speaker 0 上是静音。在 24 个音色上筛查 10 条难句，
    **只有 speaker 1 全部通过**，其余最多通过 2/10。所以默认用 speaker 1，并且主音色静音时
    自动换兜底音色（会在日志里标出来）。
-2. **逗号不再被它切开**。MeloTTS 会在 `，` 处切句、段间只插 **0.05 秒**停顿（正常逗号停顿
-   是 0.2–0.3 秒），听起来像吞字。worker 默认先把行内 `，`/`,`/`；`/`;` 去掉让模型自己断句，
-   残留切点用自己的 0.25 秒停顿拼接。（edge-tts 不需要这处理，它自带 0.2–0.3 秒自然停顿。）
+2. **逗号处用约 0.16 秒，不用它的 0.05 秒**。MeloTTS 在 `，` 处切句后只插 0.05 秒
+   （正常逗号停顿 0.2–0.3 秒），听起来像吞字。worker 保留逗号、逐段合成，每段先裁掉
+   首尾静音，再用 `MELOTTS_GAP_S`（默认 0.08 秒）拼回来，实际停顿约 0.16 秒；
+   句号/问号处也是同一套停顿。分号仍会去掉。
+   （edge-tts 不需要这处理，它自带自然停顿。）
+
+> 如果 MeloTTS 报 `cannot cache function '__o_fold': no locator available`，
+> `melo_tts.py` 已自动把 numba 缓存指到 `$TMPDIR/dsh-melotts-numba`，一般不会再出现。
 
 **MeloTTS 可调参数**：
 
@@ -127,11 +134,11 @@ python3 scripts/build_audio.py --tts melo          # 强制本地 MeloTTS
 |---|---|---|
 | `MELOTTS_SPEAKER` | `1` | 音色 id（0–255）。`scripts/melo_audition.py` 可试听 |
 | `MELOTTS_FALLBACK_SPEAKERS` | `2,3,4,5,6` | 主音色静音时的兜底音色 |
-| `MELOTTS_SPEED` | `1.0` | 语速（夹在 0.5–2.0） |
+| `MELOTTS_SPEED` | `0.9` | 语速（夹在 0.5–2.0） |
 | `MELOTTS_SDP_RATIO` | `0.2` | 韵律随机性；调低更平稳，`0` 最稳 |
 | `MELOTTS_NOISE_SCALE` | `0.6` | 语调起伏；调低更平 |
-| `MELOTTS_GAP_S` | `0.25` | 残留切点处的停顿秒数 |
-| `MELOTTS_STRIP_PUNCT` | `，,；;` | 合成前去掉的行内标点；空值 = 不去 |
+| `MELOTTS_GAP_S` | `0.08` | 逗号/句号切点处的额外停顿（连余量约 0.16 秒） |
+| `MELOTTS_STRIP_PUNCT` | `；;` | 合成前去掉的行内标点；默认只去分号，逗号留给停顿 |
 
 试听挑 MeloTTS 音色：
 
@@ -142,8 +149,41 @@ python3 scripts/build_audio.py --tts melo          # 强制本地 MeloTTS
 # 产出 spk000.wav…、all.wav（连续听）、index.txt（含 F0 起伏，越小越平稳）
 ```
 
-实测（12 核 CPU、ZH 模型）：模型加载 17–33s，之后每条台词 1–4s，约 4–5 字/秒 ——
-与 `--dry-run` 用的 3.55 字/秒估算接近，总时长不会因为换 TTS 而失控。
+实测（12 核 CPU、ZH 模型）：模型加载 17–33s，之后每场 1 条 3–8 秒，约 **4.2 汉字/秒**
+（算上英文和标点约 5.8 字符/秒）。`--dry-run` 按 4.2 汉字/秒估算；edge 后端语速更慢，成片会略长。
+
+## 模型
+
+本 skill 由 `dsh --profile headless` 执行，**模型由 headless profile 的
+`agent-default-model` 决定，技能自己改不了模型**。当前配置：
+
+```yaml
+provider: deepseek-official
+model: deepseek-flash
+reasoningEffort: high
+```
+
+`deepseek-flash` 在 DSH 里的显示名就是 **DeepSeek-V4.1-Flash**。官方 API 的
+`/v1/models` 只暴露 `deepseek-flash` 和 `deepseek-v4-pro` 两个 ID；
+`deepseek-v4.1-flash-1017` 是服务端快照名，**不能写进请求**（会 400）。
+别名始终指向最新快照，所以「用最新的 1017」就是保持 `deepseek-flash`，不要 pin 日期。
+想确认本机实际请求的模型，可以看 headless session 日志里的
+`"provider":"deepseek-official","model":"deepseek-flash"`。
+
+如果要在本机显式钉住（可选，效果与默认相同）：
+
+```yaml
+# ~/.dsh/profiles/headless/cordis.patch.yml
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    reasoningEffort: high
+```
+
+> 不要写 `model: deepseek-v4.1-flash-1017`：`/v1/models` 没有这个 ID，请求会 400。
+> 想确认当前服务端快照，只能看 DeepSeek 控制台/公告；API 返回的 `model` 字段始终是
+> `deepseek-flash`，`system_fingerprint` 是一串哈希，不是版本号。
 
 ## 运行
 

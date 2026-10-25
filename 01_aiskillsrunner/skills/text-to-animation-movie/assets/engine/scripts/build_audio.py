@@ -14,19 +14,21 @@ the same pipeline drives any number of videos:
       -> out/<id>-timing.json         full diagnostics (onsets, durations)
 
 Steps
-  1. Render each narration line to speech with whatever TTS is available:
+  1. Render each **scene** to speech as one continuous take (its lines joined
+     with internal `。` turned into `，`) with whatever TTS is available:
      **edge-tts first** (Microsoft's online voices — stable prosody, natural
      Chinese; needs network), then local **MeloTTS** as the offline fallback,
      then macOS `say`, then espeak-ng/espeak. If nothing works, or `--no-audio`
      is given, silent clips of the right length are generated instead so the
      video still runs as subtitles-only.
-  2. Concatenate every line into one continuous track; the trailing silence each
-     clip carries becomes the breathing room between lines, so audio and
-     on-screen timing come from a single source.
-  3. Locate where each line actually starts *inside that finished track* and
-     derive the whole timeline from those real onsets. Frame positions are
-     snapped once, at the end — never accumulated — so subtitle times cannot
-     drift away from the voice.
+     Per-line synthesis made every subtitle line restart the voice and left a
+     0.4–0.5s hole between lines; scene-level takes remove that choppiness.
+  2. Trim each take's lead/tail padding and concatenate the scenes with one
+     short breath (260ms) at each visual cut. That is the only hard pause.
+  3. Put each subtitle line back inside its take: multi-line scenes measure the
+     individual line durations (and use any real pause), then snap the whole
+     timeline to the frame grid once — never accumulated — so subtitle times
+     cannot drift away from the voice.
   4. Write the TypeScript the composition imports, plus the .lrc and cue sheet.
 
 Usage:
@@ -59,13 +61,12 @@ PROJECT = Path(__file__).resolve().parent.parent
 PUBLIC = PROJECT / "public"
 OUT = PROJECT / "out"
 
-CHARS_PER_SECOND = 3.55     # measured speech rate, used by --dry-run estimates
-LINE_PAUSE_MS = 190         # nominal pause, for reporting only
-SCENE_PAUSE_MS = 320        # nominal scene pause, for reporting only
-FINAL_TAIL_MS = 1100        # silence appended to the end of the track
+CHARS_PER_SECOND = 4.2      # measured MeloTTS rate in Han characters (incl. breaths)
+SCENE_PAUSE_MS = 260        # breath between scenes (the only hard pause in the track)
+FINAL_TAIL_MS = 900         # silence appended to the end of the track
 SCENE_LEAD_FRAMES = 10      # scene starts shortly before its line is spoken
-SILENCE_NOISE_DB = -50      # silencedetect threshold used to find boundaries
-SILENCE_MIN_S = 0.16
+SILENCE_NOISE_DB = -45      # silencedetect threshold for trimming / line boundaries
+SILENCE_MIN_S = 0.10
 
 SCENE_MAX_SECONDS = 18.0    # guard rail against runaway scenes
 TOTAL_MAX_SECONDS = 240.0   # guard rail against a runaway cut
@@ -83,7 +84,7 @@ ESPEAK_VOICE_CANDIDATES = ["cmn", "zh", "zh-cn"]
 MELO_WORKER = Path(__file__).resolve().parent / "melo_tts.py"
 # MeloTTS 全部参数都能用 MELOTTS_* 环境变量覆盖；下面是默认值。
 MELO_DEFAULTS: dict = {
-    "speed": 1.0,
+    "speed": 0.9,          # 比原生的 1.0 稍慢，叙述更稳，也不容易赶字幕
     # speaker 0 实测会在多行上合成出「长度正确但几乎全 0」的静音（见 melo_tts.py 说明）；
     # 改成 1 之后同样的脚本 31/31 行都有声。想换音色用 scripts/melo_audition.py 试听。
     "speaker": 1,
@@ -92,9 +93,11 @@ MELO_DEFAULTS: dict = {
     "sdp_ratio": 0.2,      # 越低越平（0 = 只走确定性时长预测，最稳、最「念稿」）
     "noise_scale": 0.6,    # 越低语调起伏越小
     "noise_scale_w": 0.8,
-    "gap_s": 0.25,         # 残留切点处我们自己插的停顿（MeloTTS 内部只插 0.05s）
+    "gap_s": 0.08,         # 逗号/句号切点处额外插的停顿（每段还会留 30/60ms 余量）
     "seed": 1234,
-    "strip_punct": "，,；;",  # 行内标点留着会被它切句 + 只插 50ms → 听起来像吞字
+    # 只去掉分号；逗号保留，让 MeloTTS 在逗号处切句、由 gap_s=0.14 接回来。
+    # 这样字幕行边界就是一条真实的短停顿，比按字数硬切准得多。
+    "strip_punct": "；;",
 }
 MELO_ENV_PREFIX = "MELOTTS_"
 
@@ -403,11 +406,12 @@ class Tts:
         return self.backend
 
     def prepare(self, items: list[tuple[str, str]], work: Path, voice: str, rate: int) -> None:
-        """Optional batch pre-pass; `items` is [(line_id, text), ...].
+        """Optional batch pre-pass; `items` is [(unit_id, text), ...].
 
-        Backends that synthesise per line (say, espeak) leave this alone.
-        MeloTTS overrides it so its model is loaded once for the whole script
-        instead of once per narration line.
+        A unit is one scene (its subtitle lines already joined). Backends that
+        synthesise one item at a time (say, espeak) leave this alone. MeloTTS /
+        edge-tts override it so the model is loaded once and all scenes are
+        synthesised in one worker run.
         """
 
     def intermediate_path(self, out_wav: Path) -> Path:
@@ -656,13 +660,137 @@ def silent_clip(text: str, out_wav: Path) -> None:
         raise RuntimeError(f"ffmpeg failed generating silence: {res.stderr.strip()}")
 
 
+def make_silence(path: Path, seconds: float) -> None:
+    """A short silent wav used as the breath between scenes."""
+    res = run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"anullsrc=r={RATE}:cl=mono",
+        "-t", f"{seconds:.3f}", "-c:a", "pcm_s16le", str(path),
+    ])
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed generating silence: {res.stderr.strip()}")
+
+
+# Characters that already end a clause / sentence; joining two lines should not
+# add another separator when the first one has one.
+_CLOSERS = "，。！？；：、…,.!?;:"
+_STRONG_END = "。！？…!?"
+
+
+def join_texts(texts: list[str]) -> str:
+    """Join a scene's subtitle lines into one continuous TTS utterance.
+
+    Internal `。` becomes `，` so the voice keeps moving through the scene; only
+    the last line keeps its final stop. This is what removes the "one sentence
+    per line" cadence without touching the subtitles themselves.
+    """
+    out = ""
+    for text in texts:
+        t = text.strip()
+        if not t:
+            continue
+        if out:
+            if out[-1] == "。":
+                out = out[:-1] + "，"
+            elif out[-1] not in _CLOSERS:
+                out += "，"
+        out += t
+    if out and out[-1] not in _STRONG_END:
+        out += "。"
+    return out
+
+
+def trim_silence(src: Path, dst: Path) -> None:
+    """Trim TTS lead/tail padding, keeping a short natural margin.
+
+    The model adds a few hundred milliseconds of silence to every clip. Combined
+    with our own gap it reads as a hard stop between lines, so the pauses in the
+    final track are ours: 50ms lead + 80ms tail, then the scene gap.
+    """
+    af = (
+        "silenceremove=start_periods=1:start_silence=0.05:start_threshold=-45dB,"
+        "areverse,"
+        "silenceremove=start_periods=1:start_silence=0.08:start_threshold=-45dB,"
+        "areverse"
+    )
+    res = run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src),
+        "-af", af, "-ar", str(RATE), "-ac", "1", "-c:a", "pcm_s16le", str(dst),
+    ])
+    if res.returncode != 0 or probe_duration_ms(dst) < 200:
+        shutil.copyfile(src, dst)
+
+
+def line_boundaries(
+    unit_wav: Path,
+    duration_ms: float,
+    lines: list[dict],
+    measured_ms: list[float] | None = None,
+    detect_silence: bool = True,
+) -> list[float]:
+    """Approximate where each subtitle line starts inside one scene clip.
+
+    A boundary is either a real pause in the TTS (a `。` between lines) or the
+    point where the line's measured speech duration is reached. `measured_ms`
+    comes from synthesising each line separately (discarded audio) — it is much
+    closer than a character-count guess, while the scene itself stays one
+    continuous take.
+    """
+    if len(lines) <= 1:
+        return [0.0, duration_ms]
+
+    if measured_ms and len(measured_ms) == len(lines) - 1 and sum(measured_ms) > 0:
+        measured = [max(1.0, float(value)) for value in measured_ms]
+        # The last line has no separate measurement; give it the leftover of the
+        # scene so the weights add up to the group duration.
+        weights = measured + [max(1.0, duration_ms - sum(measured))]
+    else:
+        weights = [
+            float(
+                max(1, int(line["chars"]))
+                + (2 if line["text"].rstrip() and line["text"].rstrip()[-1] in "。！？" else 0)
+            )
+            for line in lines
+        ]
+    total = float(sum(weights))
+    internal: list[tuple[float, float]] = []
+    if detect_silence:
+        internal = [
+            (start, end)
+            for start, end in silence_segments(unit_wav)
+            if start > 90 and end < duration_ms - 90 and (end - start) >= 90
+        ]
+
+    bounds = [0.0]
+    acc = 0.0
+    for i in range(1, len(lines)):
+        acc += weights[i - 1]
+        estimate = duration_ms * acc / total
+        best = min(
+            internal,
+            key=lambda seg: abs((seg[0] + seg[1]) / 2.0 - estimate),
+            default=None,
+        )
+        if best is not None and abs((best[0] + best[1]) / 2.0 - estimate) <= max(
+            800.0, duration_ms * 0.22
+        ):
+            onset = best[1]
+        else:
+            onset = estimate
+        # Keep the boundary strictly inside the clip and after the previous one.
+        onset = max(onset, bounds[-1] + 150.0)
+        onset = min(onset, duration_ms - 120.0 * (len(lines) - i))
+        bounds.append(round(onset, 2))
+    bounds.append(duration_ms)
+    return bounds
+
+
 # --------------------------------------------------------------------------
 # Dry run
 # --------------------------------------------------------------------------
 
 
 def dry_run_report(script: Script) -> int:
-    line_pause = LINE_PAUSE_MS / 1000.0
     scene_pause = SCENE_PAUSE_MS / 1000.0
     total = 0.0
     problems: list[str] = []
@@ -671,14 +799,12 @@ def dry_run_report(script: Script) -> int:
     print(f"  canvas {script.width}x{script.height} @ {script.fps}fps, style={script.style}")
     print("")
     for scene in script.scenes:
-        seconds = 0.0
         chars = 0
         lines = scene["lines"]
-        for i, (_, text) in enumerate(lines):
-            c = han_len(text)
-            chars += c
-            seconds += c / CHARS_PER_SECOND
-            seconds += scene_pause if i == len(lines) - 1 else line_pause
+        for _, text in lines:
+            chars += han_len(text)
+        # 每个场景是一段连续语音；只有场与场之间留一口气，行与行之间不额外停顿。
+        seconds = chars / CHARS_PER_SECOND + scene_pause + 0.05 * max(0, len(lines) - 1)
         total += seconds
         flag = ""
         if seconds > SCENE_MAX_SECONDS:
@@ -718,19 +844,53 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
     (PROJECT / script.out_file).parent.mkdir(parents=True, exist_ok=True)
     script.lrc.parent.mkdir(parents=True, exist_ok=True)
 
-    last_line_of_scene = {s["id"]: s["lines"][-1][0] for s in script.scenes}
-    line_pause_frames = round(LINE_PAUSE_MS / 1000.0 * fps)
     scene_pause_frames = round(SCENE_PAUSE_MS / 1000.0 * fps)
 
+    # ---- 0. one continuous utterance per scene ------------------------
+    #
+    # 台词按「场景」合成，而不是按字幕行逐行合成。逐行合成会让每一行都重新起调、
+    # 收调，再叠上模型尾部的静音和我们的行间停顿，成片就是一顿一顿的「蹦字」。
+    # 场景内多行先用 join_texts 连成一句话（内部句号变逗号），字幕行仍然保留，
+    # 时间轴再按字数比例 / 句间静音把每一行放回这句话里。
+    units: list[dict] = []
+    for scene in script.scenes:
+        scene_lines = [
+            {"id": line_id, "text": text, "chars": han_len(text)}
+            for line_id, text in scene["lines"]
+        ]
+        units.append(
+            {
+                "id": scene["id"],
+                "sceneId": scene["id"],
+                "visual": scene["visual"],
+                "lines": scene_lines,
+                "text": join_texts([line["text"] for line in scene_lines]),
+            }
+        )
+
+    # 只有多行场景需要「测量行」：单独合成每一行（音频随后丢弃），用它的
+    # 真实时长把字幕行放回场景里。单行场景不需要，边界就是 0..整段。
+    measure_lines = [
+        line
+        for unit in units
+        if len(unit["lines"]) > 1
+        for line in unit["lines"][:-1]
+    ]
+
     tts = None if force_no_audio else detect_tts(preferred_tts, script.voice)
-    lines = [(line_id, text) for _, _, line_id, text in script.flat]
     failed_backends: set[str] = set()
     while tts is not None:
         print(f"{script.id}: TTS = {tts.name}")
         try:
-            # 批量型后端（edge-tts / MeloTTS）在这里一次性把所有台词合成好；
-            # say / espeak 的这个钩子是空的，仍然逐行合成。
-            tts.prepare(lines, work, script.voice, script.rate)
+            # 批量型后端（edge-tts / MeloTTS）一次性把每个场景合成好；
+            # say / espeak 的这个钩子是空的，仍然逐场景合成。
+            tts.prepare(
+                [(unit["id"], unit["text"]) for unit in units]
+                + [(line["id"], line["text"]) for line in measure_lines],
+                work,
+                script.voice,
+                script.rate,
+            )
             break
         except RuntimeError as error:
             # 换下一个后端继续尝试（edge-tts 没网 → MeloTTS 本地 → espeak），
@@ -748,41 +908,84 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
         )
 
     print(
-        f"{script.id}: scenes={len(script.scenes)} lines={len(script.flat)} "
-        f"weight={sum(han_len(t) for _, _, _, t in script.flat)}"
+        f"{script.id}: scenes={len(script.scenes)} units={len(units)} "
+        f"lines={len(script.flat)} weight={sum(han_len(t) for _, _, _, t in script.flat)}"
     )
 
-    # ---- 1. synthesise every line -------------------------------------
+    # ---- 1. synthesise / trim one clip per scene ----------------------
     clips: list[dict] = []
-    for scene_id, visual, line_id, text in script.flat:
-        wav = work / f"{line_id}.wav"
-        if tts is not None:
-            tts.render(text, wav, script.voice, script.rate)
-        else:
-            silent_clip(text, wav)
+    concat_entries: list[Path] = []
+    unit_start_ms = 0.0
+    gap_wav = work / "_scene_gap.wav"
+    if len(units) > 1:
+        make_silence(gap_wav, SCENE_PAUSE_MS / 1000.0)
 
-        gap_frames = (
-            scene_pause_frames if line_id == last_line_of_scene[scene_id] else line_pause_frames
+    for unit_index, unit in enumerate(units):
+        raw = work / f"{unit['id']}.wav"
+        if tts is not None:
+            tts.render(unit["text"], raw, script.voice, script.rate)
+            wav = work / f"{unit['id']}.trim.wav"
+            trim_silence(raw, wav)
+        else:
+            silent_clip(unit["text"], raw)
+            wav = raw
+
+        duration_ms = probe_duration_ms(wav)
+
+        # 多行场景：逐行测量时长，字幕边界按真实行时长分配，而不是按字数猜。
+        measured_ms: list[float] = []
+        if tts is not None and len(unit["lines"]) > 1:
+            for line in unit["lines"][:-1]:
+                line_raw = work / f"{line['id']}.wav"
+                tts.render(line["text"], line_raw, script.voice, script.rate)
+                line_trim = work / f"{line['id']}.trim.wav"
+                trim_silence(line_raw, line_trim)
+                measured_ms.append(probe_duration_ms(line_trim))
+
+        bounds = line_boundaries(
+            wav,
+            duration_ms,
+            unit["lines"],
+            measured_ms,
+            detect_silence=tts is not None,
         )
-        clips.append(
-            {
-                "sceneId": scene_id,
-                "visual": visual,
-                "id": line_id,
-                "text": text,
+
+        for line_index, line in enumerate(unit["lines"]):
+            start_rel = bounds[line_index]
+            end_rel = bounds[line_index + 1]
+            gap_frames = (
+                scene_pause_frames if line_index == len(unit["lines"]) - 1 else 0
+            )
+            clip = {
+                "sceneId": unit["sceneId"],
+                "visual": unit["visual"],
+                "id": line["id"],
+                "text": line["text"],
                 "path": wav,
-                "durationMs": probe_duration_ms(wav),
+                "durationMs": round(end_rel - start_rel, 2),
+                "onsetMs": round(unit_start_ms + start_rel, 2),
                 "gapFrames": gap_frames,
-                "gapMs": gap_frames / fps * 1000.0,
-                "chars": han_len(text),
+                "gapMs": round(gap_frames / fps * 1000.0, 2),
+                "chars": line["chars"],
+                "unitId": unit["id"],
+                "unitDurationMs": round(duration_ms, 2),
             }
-        )
-        print(f"  {line_id}  {clips[-1]['durationMs']/1000:5.2f}s  {text[:26]}")
+            clips.append(clip)
+            print(
+                f"  {line['id']}  +{clip['onsetMs']/1000:7.2f}s  "
+                f"{clip['durationMs']/1000:5.2f}s  {unit['id']}  {line['text'][:24]}"
+            )
+
+        concat_entries.append(wav)
+        unit_start_ms += duration_ms
+        if unit_index + 1 < len(units):
+            concat_entries.append(gap_wav)
+            unit_start_ms += SCENE_PAUSE_MS
 
     # ---- 2. assemble the continuous narration track -------------------
     concat_list = work / "concat.txt"
     concat_list.write_text(
-        "".join(f"file '{c['path'].resolve().as_posix()}'\n" for c in clips),
+        "".join(f"file '{path.resolve().as_posix()}'\n" for path in concat_entries),
         encoding="utf-8",
     )
 
@@ -808,40 +1011,14 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
 
     track_ms = probe_duration_ms(track)
 
-    # ---- 3. locate each line inside the finished track ----------------
+    # ---- 3. snap the timeline onto the frame grid ---------------------
     #
-    # Every clip already carries trailing silence, which becomes the breathing
-    # room between lines once concatenated. So the expected onset of line i is
-    # the sum of the preceding clip durations; the real onset is the end of
-    # whichever detected silence segment contains that boundary. Measuring the
-    # finished audio instead of accumulating frame-rounded durations is what
-    # keeps the .lrc glued to the voice.
-    segments = silence_segments(track) if has_audio else []
-
-    expected_ms = 0.0
-    for i, clip in enumerate(clips):
-        if i == 0:
-            clip["onsetMs"] = 0.0
-        else:
-            boundary = expected_ms
-            hit = None
-            for start, end in segments:
-                # Requiring the matched silence to be a plausible inter-line
-                # pause stops the long trailing silence at the end of the track
-                # from swallowing the last few lines.
-                if start <= boundary <= end and (end - start) <= 1200:
-                    hit = end
-                    break
-            clip["onsetMs"] = hit if hit is not None else boundary
-        expected_ms += clip["durationMs"]
-
-    # ---- 3b. snap the timeline onto the frame grid ---------------------
-    #
-    # Onsets are snapped once, from the measured values — not accumulated from
-    # previous lines — so rounding error can never compound. A line only moves
-    # if its snapped onset would collide with the previous line. Line ends come
-    # from the *next* onset, which keeps every line inside the audio instead of
-    # stretching the video past the end of the voice track.
+    # Onsets are known from the assembled unit durations and the in-unit line
+    # boundaries; snapping happens once and never accumulates, so rounding
+    # error cannot compound. A line only moves if its snapped onset would
+    # collide with the previous line. Line ends come from the *next* onset,
+    # which keeps every line inside the audio instead of stretching the video
+    # past the end of the voice track.
     total_frames = max(int(round(track_ms / 1000.0 * fps)), len(clips))
 
     prev_frame = -1
@@ -1054,7 +1231,8 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
         f"- 纯语音时长: {sum(c['speechMs'] for c in clips)/1000:.2f}s",
         f"- 场景数: {len(scenes)} / 台词行数: {len(clips)}",
         f"- 配音: {tts.name if tts else '无（纯字幕）'}",
-        f"- 入点来源: 成品音轨实测（silencedetect {SILENCE_NOISE_DB}dB）",
+        f"- 入点来源: 按场景实测时长 + 组内静音/字数比例分配",
+        f"- 合成单位: 每场 1 条连续语音（行间不停顿）",
         "",
         "| # | 场景 | 台词 | LRC 入点 | 语音 | 画面帧 |",
         "|---|---|---|---|---|---|",
@@ -1079,7 +1257,7 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
         )
     worst = max(abs(c["startMs"] - c["onsetMs"]) for c in clips)
     print("")
-    print(f"max |网格入点 - 实测入点|: {worst:.1f}ms")
+    print(f"max |网格入点 - 语音入点|: {worst:.1f}ms")
     print(f"track     -> {track}  ({track_ms/1000:.2f}s)")
     print(f"timing    -> {script.timing_ts}  ({total_frames} frames, {len(scenes)} scenes)")
     print(f"config    -> {script.config_ts}")

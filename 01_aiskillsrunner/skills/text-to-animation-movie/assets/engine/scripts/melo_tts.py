@@ -11,7 +11,7 @@ jobs.json:
       "language": "ZH", "speed": 1.0, "speaker": 1, "seed": 1234,
       "fallback_speakers": "1,2,3,4,5", "attempts": 2,
       "sdp_ratio": 0.2, "noise_scale": 0.6, "noise_scale_w": 0.8,
-      "retries": 4, "strip_punct": "，,；;", "gap_s": 0.25,
+      "retries": 4, "strip_punct": "；;", "gap_s": 0.08,
       "jobs": [{"id": "L01", "text": "...", "out": "/abs/path/L01.wav"}, ...]
     }
 
@@ -27,10 +27,11 @@ jobs.json:
    而换一句两边都正常；短句也可能中招（"同样在卖东西" 静音，"…为什么利润差别" 有声）。
    所以兜底是**换 speaker 重试**，不是换种子。合成完查峰值电平和有效样本占比，
    不合格就换下一个候选音色。
-2. **逗号不再被它切开**。`melo.split_utils.split_sentences_zh` 会在 `，` 处切句，
-   然后段与段之间只插 **0.05 秒**静音（正常逗号停顿是 0.2~0.3 秒），听起来就是
-   「词没说完就下一句」。这里默认先把行内 `，`/`,`/`；`/`;` 去掉，让模型自己断句；
-   万一还有别的切点，就用我们自己的停顿（gap_s）拼接。
+2. **逗号处用约 0.16 秒，不用它的 0.05 秒**。`melo.split_utils.split_sentences_zh`
+   会在 `，` 处切句，然后段与段之间只插 **0.05 秒**静音（正常逗号停顿 0.2~0.3 秒）。
+   这里保留逗号、逐段合成；每段先裁掉自己的首尾静音（留 30/60ms 余量），再用
+   `gap_s`（默认 0.08 秒）拼回来，实际停顿约 0.16 秒。分号仍会去掉。
+   字幕行边界也因此是一条真实的短停顿，而不是靠字数硬猜。
 3. **可调语气**。`speaker`（这个中文模型有 256 个音色）、`sdp_ratio`、`noise_scale`
    都从 jobs.json 传进来，用来找更平稳的叙述感。
 """
@@ -39,12 +40,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+# numba / librosa (pulled in by MeloTTS) otherwise try to write their cache next
+# to the installed package. On some machines that raises
+# "cannot cache function '__o_fold': no locator available" and MeloTTS dies
+# before the first line. Point numba at a writable per-user cache instead.
+_NUMBA_CACHE = Path(tempfile.gettempdir()) / "dsh-melotts-numba"
+try:
+    _NUMBA_CACHE.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("NUMBA_CACHE_DIR", str(_NUMBA_CACHE))
+except OSError:
+    pass
 
 # 低于这个峰值电平就认为「没出声」（约 -80 dBFS）
 SILENCE_PEAK = 1e-4
@@ -53,13 +67,13 @@ MIN_VOICED_RATIO = 0.02
 # 短于这个时长认为是异常
 MIN_DURATION_S = 0.25
 # 我们自己拼接段落时插入的停顿（MeloTTS 内部只插 0.05s）
-DEFAULT_GAP_S = 0.25
+DEFAULT_GAP_S = 0.08
 # 行内会让 MeloTTS 切句的标点（切完只剩 50ms 停顿 → 听起来像吞字）
-DEFAULT_STRIP_PUNCT = "，,；;"
+DEFAULT_STRIP_PUNCT = "；;"
 
 
 def normalize_text(text: str, strip_chars: str) -> str:
-    """去掉会让 MeloTTS 在句中切句的标点，让它自己决定断句。"""
+    """去掉指定标点（默认只去分号），逗号留给 TTS 做自然停顿。"""
     if not strip_chars:
         return text
     out = text
@@ -87,6 +101,18 @@ def inspect(path: Path) -> tuple[bool, str, float, float, float]:
     if voiced < MIN_VOICED_RATIO:
         return False, f"几乎没有有效语音（有效样本 {voiced:.1%}）", peak, duration, voiced
     return True, "ok", peak, duration, voiced
+
+
+def trim_edges(audio: np.ndarray, sample_rate: int, lead_s: float = 0.03, tail_s: float = 0.06) -> np.ndarray:
+    """Keep only the voiced core of a MeloTTS piece (plus tiny margins)."""
+    if audio.size == 0:
+        return audio
+    idx = np.where(np.abs(audio) > 1e-3)[0]
+    if idx.size == 0:
+        return audio
+    start = max(0, int(idx[0] - lead_s * sample_rate))
+    end = min(audio.size, int(idx[-1] + tail_s * sample_rate))
+    return audio[start:end]
 
 
 def synthesize(
@@ -123,8 +149,15 @@ def synthesize(
     gap = np.zeros(int(sample_rate * gap_s), dtype=np.float32)
     chunks: list[np.ndarray] = []
     for piece in pieces:
-        audio = model.tts_to_file(piece, output_path=None, **kwargs)
-        chunks.append(np.asarray(audio, dtype=np.float32))
+        audio = np.asarray(model.tts_to_file(piece, output_path=None, **kwargs), dtype=np.float32)
+        # A silent *piece* would still pass the whole-clip check and swallow a
+        # clause; fail the job so the speaker fallback can try again.
+        if audio.size and float(np.abs(audio).max()) < SILENCE_PEAK:
+            raise RuntimeError(f"MeloTTS 片段静音：{piece[:24]!r}")
+        # Each MeloTTS piece carries its own lead/tail padding. If we just glue
+        # the raw pieces together, a 0.08s gap becomes a 0.5-0.7s hole; trim the
+        # edges first, then add exactly one short breath.
+        chunks.append(trim_edges(audio, sample_rate))
         chunks.append(gap)
     sf.write(str(out_path), np.concatenate(chunks), sample_rate)
     return len(pieces)

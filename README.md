@@ -271,6 +271,30 @@ root 的 `/root/.dsh` 是空的，以 root 运行时 skill 根本起不来。sys
 > 因此权限模式用的是 **`SKILLS_DSH_PERMISSION_MODE`**（后端再以环境变量 `DSH_PERMISSION_MODE` 传给 dsh），
 > dsh 可执行文件用 **`SKILLS_DSH_BIN`**。后端启动时会自动扫描 `.env` 并对这类键名告警。
 
+### `audio-to-note`：语音 → 整理后的 Note → 手机通知
+
+`01_aiskillsrunner/skills/audio-to-note/` 是新增的「语音转笔记」skill：
+
+1. **语言适配**：读取录音文档的 `language`（App 上传时选择，`zh` / `ja` / `en` / `kr`），
+   归一成 `zh` / `ja` / `en` / `ko` 后，通过 `AISKILLS_LANGUAGE` 环境变量和任务提示词
+   （`输出语言：ja`）两路传给 skill；没有显式语言时按正文自动判断。
+2. **文本整理**：只删口头语、结巴、ASR 噪声，补标点、分段；**不重排、不摘要、不加理论**。
+   如果正文和目标语言不同，按目标语言逐段忠实翻译。
+3. **数据存储**：写入 Firestore **`/users/<uid>/notes/<noteid>`**，与
+   `text-to-animation-movie` 的 Note 完全同一个集合；字段对齐 App 的 `NoteItem`
+   （`id` / `title` / `body` / `tags` / `color` / `hidden=false` / `language` / `updatedAt`）。
+4. **通知反馈**：读取 `users/<uid>/fcmTokens`，向该用户每台设备发 FCM，渠道
+   `luyin_job_result`；最终输出 `SKILL_RESULT: OK … notified=1`，后端据此跳过通用
+   「执行完毕」推送，避免重复通知。
+
+发布脚本零依赖（Node 内置 `crypto` / `fetch` 调 Firestore REST + FCM v1），
+zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不写 Firebase；
+`AISKILLS_NOTE_NOTIFY=0` 只写 Note、不发通知。
+
+`monitor.js` 对 `audio-to-note` 额外做一层**产物校验**：skill 退出码为 0 后，
+确认 `/users/<uid>/notes/<noteid>` 真的存在且 `body` 非空；不存在就把任务记为失败，
+避免「回合提前结束」被当成成功。
+
 ### 「任务显示 success，但 Blog 上没有文章」
 
 这是**假成功**，典型症状与排查顺序：

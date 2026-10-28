@@ -160,6 +160,49 @@ skills/audio-to-multilingual-blog/scripts/run-with-aiskillsrunner.sh --reffilepa
 （`AISKILLS_BLOG_KEY` / `AISKILLS_BLOG_UID` / `AISKILLS_BLOG_TMPDIR` / `AISKILLS_BLOG_DRY_RUN`）
 见 skill 的 README。
 
+## 内置 Skill：audio-to-note
+
+把语音转文字（STT）原文整理成一篇**忠实于原意和叙事顺序**的笔记，
+按上传时选择的语言（`zh` / `ja` / `en` / `ko`）输出，
+写入 Firestore 的 **`/users/<uid>/notes/<noteid>`**（与 `text-to-animation-movie`
+是同一个 Note 集合），并发送 FCM 手机通知。
+
+- 只删口头语、结巴、ASR 噪声，补标点和分段；**不重组、不摘要、不加理论/标题/结论**。
+- 目标语言优先读 `AISKILLS_LANGUAGE`，也支持提示词里的 `语言：ja`；没有显式语言时自动判断。
+- `publish-note.mjs` **零依赖**（Node 内置 `crypto` / `fetch` 调 Firestore REST + FCM v1），
+  skill zip 安装后不需要 `npm install`。
+- 发布脚本只调用一次，写 Note → 读回校验 → 给 `users/<uid>/fcmTokens` 的每台设备发通知。
+- 最终输出 `SKILL_RESULT: OK docid=… note=… notified=<1|0>`；后端看到 `notified=1`
+  会跳过自己的通用「执行完毕」推送，避免一次任务弹两条通知。
+
+```bash
+# 安装
+mkdir -p ~/.agents/skills
+cp -r skills/audio-to-note ~/.agents/skills/
+
+# 运行（示例：日语）
+DSH_PERMISSION_MODE=danger-full-access \
+  skills/audio-to-note/scripts/run-with-aiskillsrunner.sh \
+  --reffilepath ./stt.txt --env AISKILLS_LANGUAGE=ja
+
+# 只校验、不写 Firebase、不发通知
+AISKILLS_NOTE_DRY_RUN=1 \
+  skills/audio-to-note/scripts/run-with-aiskillsrunner.sh \
+  --reffilepath ./stt.txt --env AISKILLS_LANGUAGE=ja
+```
+
+生成的文件：
+
+```
+~/Documents/tmpaiskill/<DocID>/
+├── 输入文本.md      # STT 原文
+├── 笔记.md          # 人读版：标题 + 整理后的正文
+├── 笔记.json        # title / body / language / tags / ...
+└── 发布结果.json    # Firestore 路径、读回校验、FCM 统计
+```
+
+源码在 [`skills/audio-to-note/`](skills/audio-to-note/)，详见该目录的 README。
+
 ## License
 
 MIT

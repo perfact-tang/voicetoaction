@@ -50,6 +50,10 @@ const skillTmpRoot = process.env.AISKILLS_BLOG_TMPDIR || join(homedir(), "Docume
 const DEFAULT_VERIFY_SKILL_NAMES = ["audio-to-multilingual-blog"];
 /** 判定「输出目录已完成」所需的 4 个文件（与 audio-to-multilingual-blog 的约定一致）。 */
 const SKILL_OUTPUT_FILES = ["中文.md", "日文.md", "英文.md", "文章信息.json"];
+/** audio-to-note 的输出文件（用于 note 产物的兜底定位）。 */
+const NOTE_OUTPUT_FILES = ["笔记.json"];
+/** 需要把「上传时选择的语言」写进提示词的 skill。 */
+const LANGUAGE_PROMPT_SKILLS = new Set(["audio-to-note"]);
 const jobsPath = join(dataDir, "jobs.json");
 const statePath = join(dataDir, "state.json");
 const driveTokenPath = join(dataDir, "drive", "oauth-token.json");
@@ -707,6 +711,8 @@ async function updateFirestoreSuccess(job, fields = {}) {
   // 产物校验结果（见 verifySkillUpload）：确认 mkblog 里真的存在这篇文章
   if (fields.skillUploadVerified !== undefined) payload.skillUploadVerified = fields.skillUploadVerified;
   if (fields.blogDocId !== undefined) payload.blogDocId = fields.blogDocId;
+  // audio-to-note 的产物：确认 /users/<uid>/notes/<noteid> 存在
+  if (fields.noteDocId !== undefined) payload.noteDocId = fields.noteDocId;
   if (fields.sttTextPath !== undefined) payload.sttTextPath = fields.sttTextPath;
   if (fields.sttTextUrl !== undefined) payload.sttTextUrl = fields.sttTextUrl;
   if (fields.sttTextLocalPath !== undefined) payload.sttTextLocalPath = fields.sttTextLocalPath;
@@ -798,6 +804,63 @@ async function blogDocExists(docId) {
     log(`产物校验查询失败（${blogCollection}/${docId}）：${error.message}`);
     return null;
   }
+}
+
+/** audio-to-note 的产物校验：确认 /users/<uid>/notes/<noteid> 真的存在且 body 非空。 */
+async function noteDocExists(userId, noteId) {
+  try {
+    const snapshot = await state.db
+      .collection("users").doc(userId)
+      .collection("notes").doc(noteId)
+      .get();
+    if (!snapshot.exists) return false;
+    const body = snapshot.get("body");
+    const hidden = snapshot.get("hidden");
+    // App 的笔记列表只查 hidden == false；hidden 缺失或为 true 都算"用户看不到"。
+    return typeof body === "string" && body.trim().length > 0 && hidden === false;
+  } catch (error) {
+    log(`笔记产物校验查询失败（users/${userId}/notes/${noteId}）：${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * 校验 audio-to-note 是否真的写入了 Note。
+ * 优先认输出里的 DocID；没有时按本次新写出的「笔记.json」目录兜底。
+ */
+async function verifyNoteOutput({ userId, stdout, startedAtMs }) {
+  if (!state.config.verifySkillUpload) return { skipped: true, reason: "SKILL_VERIFY_UPLOAD=false" };
+  if (!state.db) return { skipped: true, reason: "Firestore 未初始化" };
+  if (!userId) return { error: "笔记产物校验失败：缺少用户 uid。" };
+
+  const reported = extractDocIds(stdout);
+  const candidates = reported.length
+    ? reported
+    : inspectSkillOutputs({ root: skillTmpRoot, startedAtMs, files: NOTE_OUTPUT_FILES })
+        .filter((output) => output.complete)
+        .map((output) => output.docId);
+
+  if (!candidates.length) {
+    return {
+      error:
+        "笔记产物校验失败：skill 退出码为 0，但输出里没有 DocID，" +
+        `${skillTmpRoot} 下也没有本次生成的完整笔记目录（需含 ${NOTE_OUTPUT_FILES.join(" / ")}）。` +
+        "疑似 agent 提前结束回合（headless 单回合语义），请查 journalctl 里的 [skill:*] 日志。"
+    };
+  }
+
+  let inconclusive = false;
+  for (const noteId of [...new Set(candidates)]) {
+    const exists = await noteDocExists(userId, noteId);
+    if (exists === true) return { noteId, verified: true };
+    if (exists === null) inconclusive = true;
+  }
+  if (inconclusive) return { skipped: true, reason: "Firestore 查询失败，无法校验 Note 产物" };
+  return {
+    error:
+      `笔记产物校验失败：skill 退出码为 0，但 users/${userId}/notes/ 下不存在候选 Note` +
+      `（${[...new Set(candidates)].slice(0, 3).join(", ")}）。发布步骤很可能没跑到。`
+  };
 }
 
 /**
@@ -1084,6 +1147,17 @@ async function processSkillJob(job) {
     return `CMS 服务「${service.skillName}」还没有可用的 Skill 包（skillZipUrl 为空），请先在 CMS 上传并设为当前版本。`;
   }
 
+  // 上传时在 App 里选择的语言：既通过环境变量传给 skill 脚本，
+  // 也写进提示词（防止 dsh 的 subprocess 层过滤环境变量）。
+  const noteLanguage = normalizeLanguage(job.language);
+  const languagePrompt =
+    LANGUAGE_PROMPT_SKILLS.has(service.skillName) && noteLanguage !== "auto"
+      ? `输出语言：${noteLanguage}（用户在 App 上传时选择的语言）。请按该语言整理并写入 Note；不要混用其它语言（专名除外）。`
+      : "";
+  if (languagePrompt) {
+    log(`输出语言：${noteLanguage}（来自录音 language 字段）`);
+  }
+
   const install = resolveSkillInstall({
     skillsDir: state.config.skillsDir,
     skillName: service.skillName,
@@ -1160,7 +1234,9 @@ async function processSkillJob(job) {
         runnerBin: state.config.skillsRunnerBin,
         skillsDir: state.config.skillsDir,
         skillName: service.skillName,
-        prompt: resumePrompt,
+        prompt: isResume
+          ? [resumePrompt, languagePrompt].filter(Boolean).join("\n\n")
+          : (languagePrompt || undefined),
         refPath: attachRef ? textPath : undefined,
         userId: job.userId,
         firebaseKeyPath: state.config.adminKeyPath,
@@ -1168,6 +1244,7 @@ async function processSkillJob(job) {
         forceInstall: needsInstall && !isResume,
         dshPermissionMode: state.config.dshPermissionMode,
         dshBin: state.config.skillsDshBin,
+        extraEnv: noteLanguage !== "auto" ? { AISKILLS_LANGUAGE: noteLanguage } : {},
         cwd: projectRoot,
         timeoutMs: state.config.skillsRunnerTimeoutMs,
         // 把 aiskillsrunner / dsh 的输出实时写进监控日志，避免「卡住了但看不到任何信息」
@@ -1229,6 +1306,23 @@ async function processSkillJob(job) {
     log(`产物校验跳过：${uploadCheck.reason || "SKILL_VERIFY_UPLOAD=false"}`);
   }
 
+  // audio-to-note 不走博客产物校验，单独确认 Note 真的写进了 Firestore。
+  let noteDocId = null;
+  if (service.skillName === "audio-to-note") {
+    const noteCheck = await verifyNoteOutput({
+      userId: job.userId,
+      stdout: output,
+      startedAtMs: skillRunStartedAtMs
+    });
+    if (noteCheck.error) return noteCheck.error;
+    if (noteCheck.verified) {
+      noteDocId = noteCheck.noteId;
+      log(`笔记产物校验通过：users/${job.userId}/notes/${noteCheck.noteId}`);
+    } else if (noteCheck.skipped) {
+      log(`笔记产物校验跳过：${noteCheck.reason || "无法校验"}`);
+    }
+  }
+
   if (!localSkillInstalled(state.config.skillsDir, service.skillName)) {
     return `skill「${service.skillName}」执行结束，但本地目录里没有找到它（安装可能失败）。`;
   }
@@ -1255,7 +1349,8 @@ async function processSkillJob(job) {
       ...(uploadCheck.verified ? { skillUploadVerified: true, blogDocId: uploadCheck.docId } : {}),
       sttTextPath: stored?.gsUrl || "",
       sttTextUrl: stored?.httpsUrl || "",
-      sttTextLocalPath: textPath
+      sttTextLocalPath: textPath,
+      ...(noteDocId ? { noteDocId } : {})
     });
   } catch (error) {
     return `Firestore update failed: ${error.message}`;
@@ -1267,7 +1362,14 @@ async function processSkillJob(job) {
     entry.errorMessage = null;
   });
   log(`处理完成：${job.documentId} → skill「${service.skillName}」V${service.version}`);
-  await notifyJobResult(job, { ok: true, body: `skill「${service.skillName}」执行完毕。` });
+  // audio-to-note 已经在发布脚本里给用户发过「笔记已保存」的 FCM；
+  // 它会在最后一行标记 notified=1，这里跳过通用推送，避免一次任务弹两条通知。
+  const skillAlreadyNotified = /^SKILL_RESULT:\s*OK\b.*\bnotified=1\b/m.test(output);
+  if (skillAlreadyNotified) {
+    log("skill 已自行发送完成通知（SKILL_RESULT … notified=1），跳过后端通用推送。");
+  } else {
+    await notifyJobResult(job, { ok: true, body: `skill「${service.skillName}」执行完毕。` });
+  }
   return null;
 }
 

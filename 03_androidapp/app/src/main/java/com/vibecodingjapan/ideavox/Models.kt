@@ -30,7 +30,10 @@ data class RecordingItem(
   val uploadProgress: Int = 0,
   val storageUri: String? = null,
   val error: String? = null,
-  val remoteId: String? = null,
+  /**
+   * 旧版本用来标记“仅云端”的录音。新版本不再读取 /users/{uid}/recordings，
+   * 该字段只用于启动时过滤掉旧缓存里的云端条目，不再参与 UI。
+   */
   val remoteListing: Boolean = false,
   val aicallingId: String? = null,
   val aicallingTitle: String? = null,
@@ -72,6 +75,12 @@ data class NoteItem(
   val hidden: Boolean = false,
 )
 
+/** 一次分页读取到的笔记，以及是否还有下一页。 */
+data class NotesPage(
+  val notes: List<NoteItem>,
+  val hasMore: Boolean,
+)
+
 @Serializable
 data class PendingSharedNote(
   val id: String,
@@ -89,7 +98,6 @@ data class LocalSnapshot(
   val pendingSharedNotes: List<PendingSharedNote> = emptyList(),
   val noteDraft: String = "",
   val readerFontSizeSp: Float = 22f,
-  val downloadedRemoteRecordingIds: List<String> = emptyList(),
   val selectedRecordingDeviceId: Int? = null,
   /** Stable product name used to re-find the pinned device after reconnect. */
   val selectedRecordingDeviceName: String? = null,

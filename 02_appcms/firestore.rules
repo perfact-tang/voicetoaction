@@ -72,9 +72,12 @@ service cloud.firestore {
     // ---- Skill version control -------------------------------------------
     // Ownership of a version document is derived from its parent service, so a
     // version can never be attached to (or read from) someone else's service.
+    //
+    // Use a single get() instead of exists() + get(): each accessor is billed as
+    // a document read, and this function runs for every version document in a
+    // list query. A missing parent makes `.data` throw, which denies the request.
     function serviceOwned(serviceId) {
-      return exists(/databases/$(database)/documents/allalservice/$(serviceId))
-        && owns(get(/databases/$(database)/documents/allalservice/$(serviceId)).data.userUid);
+      return owns(get(/databases/$(database)/documents/allalservice/$(serviceId)).data.userUid);
     }
 
     function validSkillVersionData(data) {
@@ -267,7 +270,11 @@ service cloud.firestore {
       // Immutable per-version documents. The parent service decides ownership,
       // which also blocks writing versions under a service that does not exist.
       match /skillVersions/{versionId} {
-        allow read: if serviceOwned(serviceId);
+        // The version carries the owner uid written at create time (and updates
+        // are denied), so reads need no extra parent get per document. The old
+        // serviceOwned() read rule made every version read cost an extra 1-2
+        // reads, which multiplied when the console listed the version history.
+        allow read: if owns(resource.data.userUid);
 
         allow create: if serviceOwned(serviceId)
           && versionId.matches('^[1-9][0-9]{0,5}$')

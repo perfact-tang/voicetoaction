@@ -26,8 +26,10 @@ ideavox是原生 Android Kotlin + Jetpack Compose 应用。当前工程包名为
 - Firebase Storage 先上传 `record/{uid}/{id}-{fileName}`，成功后写 Firestore `record`。
 - 上传时会为 Storage 文件写入 `audio/wav` 等 content type 与录音自定义 metadata；同时在 `users/{uid}/recordings/{recordingId}` 保存私有录音元数据、上传进度、文件类型和 Storage URI。
 - 合并上传时可选择中文、日语、英语、韩语，所选语言会写入 `record.language` 和用户私有录音元数据。
-- 启动和登录后会同步 `users/{uid}/notes` 与 `users/{uid}/recordings` 到本地缓存；远端录音元数据会出现在列表中，本地文件不存在时显示为“仅云端”，可下载到本机后再播放或参与合并上传。
-- 本地缓存按登录用户隔离；切换账号或退出时会清除笔记、草稿和云端录音元数据，只保留设备本地录音文件。
+- 手机端不再读取 `users/{uid}/recordings`，也不再列出或下载“仅云端”录音；上传时仍会写入该集合，供后端 `monitor.js` 处理。
+- 「已保存笔记」页面按 **5 条/页** 分页读取 `users/{uid}/notes`：打开页面读第一页，点“加载更多”再读下一页；登录/启动不再自动全量同步笔记。
+- 「已上传」筛选现在只看本机录音的 `uploadState == UPLOADED`，不再依赖云端录音列表。
+- 本地缓存按登录用户隔离；切换账号或退出时会清除笔记、草稿，只保留设备本地录音文件。
 - Firebase 规则文件位于 `firestore.rules` 和 `storage.rules`，`firebase.json` 已指向这两个文件；策略为本人读写私有数据，录音上传和 `record` 队列写入需要 VIP。
 - 「呼叫对象」的数据源已从 `/users/{uid}/aicalling` 改为 CMS 的 `/allalservice`：按 `userUid == uid` 查询，只列出**使用中且未删除**的服务，按 `sort` 排序；标题/说明按 App 语言取 `name<Lang>` / `description<Lang>`（缺失时按语言顺序回退，再回退到 `applicationName`）。列表会标注服务类型（Google Drive / DeepSeek Skill）。
 - 录音上传时：`google_workspace_studio` 服务会把它 `googleDriveUrl` 里的 Drive 目录 ID 写入 `/record.aicallingid`，后端 `monitor.js` 无需改动即可继续把 Google Doc 生成到该目录；`deepseek_harness` 没有 Drive 目录，后端会回落到默认目录。两种类型都会额外写入 `serviceId` / `serviceType`（以及 Storage 自定义 metadata），供后端按 `allalservice/{serviceId}` 解析服务。

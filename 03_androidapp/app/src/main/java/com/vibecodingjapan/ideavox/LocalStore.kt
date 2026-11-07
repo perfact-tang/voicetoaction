@@ -100,19 +100,6 @@ class LocalStore(context: Context) {
   }
 
   @Synchronized
-  fun mergeNotes(notes: List<NoteItem>) {
-    val current = _snapshot.value
-    save(current.copy(notes = SnapshotMerge.notes(current.notes, notes)))
-  }
-
-  @Synchronized
-  fun mergeRecordings(recordings: List<RecordingItem>) {
-    val current = _snapshot.value
-    val visibleRemote = recordings.filterNot { it.remoteId in current.downloadedRemoteRecordingIds }
-    save(current.copy(recordings = SnapshotMerge.recordings(current.recordings, visibleRemote)))
-  }
-
-  @Synchronized
   fun saveDraft(body: String) {
     save(_snapshot.value.copy(noteDraft = body))
   }
@@ -120,14 +107,6 @@ class LocalStore(context: Context) {
   @Synchronized
   fun saveReaderFontSize(sizeSp: Float) {
     save(_snapshot.value.copy(readerFontSizeSp = sizeSp.coerceIn(16f, 34f)))
-  }
-
-  @Synchronized
-  fun markRemoteRecordingDownloaded(remoteId: String) {
-    val current = _snapshot.value
-    val ids = (current.downloadedRemoteRecordingIds + remoteId).distinct()
-    val recordings = current.recordings.filterNot { it.remoteListing && it.remoteId == remoteId }
-    save(current.copy(recordings = recordings, downloadedRemoteRecordingIds = ids))
   }
 
   @Synchronized
@@ -183,7 +162,10 @@ class LocalStore(context: Context) {
 
   private fun loadSnapshot(): LocalSnapshot {
     if (!dataFile.exists()) return LocalSnapshot()
-    return runCatching { json.decodeFromString<LocalSnapshot>(dataFile.readText()) }.getOrDefault(LocalSnapshot())
+    val loaded = runCatching { json.decodeFromString<LocalSnapshot>(dataFile.readText()) }.getOrDefault(LocalSnapshot())
+    // 旧版本会把 users/{uid}/recordings 的“仅云端”条目缓存到本地；
+    // 新版本不再读取云端录音列表，启动时直接丢弃这些条目。
+    return loaded.copy(recordings = loaded.recordings.filterNot { it.remoteListing })
   }
 
   private fun save(snapshot: LocalSnapshot) {

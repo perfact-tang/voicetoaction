@@ -56,7 +56,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
@@ -302,14 +301,12 @@ fun LuYinApp(
   fun handleAuthChanged(next: AuthUiState) {
     authState = next
     appStore.setActiveUser(next.uid)
+    // 换账号/退出后清空笔记分页游标；笔记只在打开“已保存笔记”时按页读取。
+    firebaseRepository.resetNotesPager()
     if (next.uid != null) {
       // 登录后登记 FCM 令牌，后台任务完成时才能收到推送
       PushNotifications.registerForUser(context, next.uid)
       appStore.claimUnownedSharedNotes(next.uid)
-      scope.launch {
-        runCatching { firebaseRepository.syncUserData() }
-          .onFailure { message = it.message ?: "同步失败" }
-      }
     } else {
       // 退出登录后删除令牌，避免换账号仍收到上一个人的通知
       PushNotifications.unregisterCurrent(context)
@@ -393,7 +390,6 @@ fun LuYinApp(
             )
           "notes" ->
             NotesScreen(
-              notes = snapshot.notes,
               draft = snapshot.noteDraft,
               readerFontSizeSp = snapshot.readerFontSizeSp,
               onAuthChanged = { handleAuthChanged(it) },
@@ -1291,10 +1287,11 @@ private fun RecorderScreen(
   val visibleRecordings =
     recordings.filter { item ->
       when (recordingFilter) {
-        RecordingListFilter.ALL -> !item.remoteListing && isLocalRecordingAvailable(item)
+        RecordingListFilter.ALL -> isLocalRecordingAvailable(item)
         RecordingListFilter.ORIGINAL -> item.kind == RecordingKind.ORIGINAL && isLocalRecordingAvailable(item)
         RecordingListFilter.MERGED -> item.kind == RecordingKind.MERGED && isLocalRecordingAvailable(item)
-        RecordingListFilter.UPLOADED -> item.remoteListing
+        // 不再读取 users/{uid}/recordings；这里的“已上传”只看本机文件的上传状态。
+        RecordingListFilter.UPLOADED -> item.uploadState == UploadState.UPLOADED && isLocalRecordingAvailable(item)
       }
     }
   val detailRecording = detailRecordingId?.let { id -> recordings.find { it.id == id } }
@@ -1476,7 +1473,7 @@ private fun RecorderScreen(
         AICallingPhase.HOME ->
           AICallingHomeScreen(
             recorderState = recorderState,
-            localRecordingCount = recordings.count { !it.remoteListing && isLocalRecordingAvailable(it) },
+            localRecordingCount = recordings.count(::isLocalRecordingAvailable),
             onStartNormalRecording = {
               val intent = Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_START)
               if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -1548,16 +1545,6 @@ private fun RecorderScreen(
         recordingFilter = option
         selected.clear()
         filterMenuExpanded = false
-        if (option == RecordingListFilter.UPLOADED) {
-          if (firebaseRepository.currentUid == null) {
-            onMessage("请先登录后查看已上传文件")
-          } else {
-            scope.launch {
-              runCatching { firebaseRepository.syncUserData() }
-                .onFailure { onMessage(it.message ?: "已上传文件读取失败") }
-            }
-          }
-        }
       },
       onUploadSelected = {
         val localSelected = selected.filter { id -> recordings.find { it.id == id }?.let(::isLocalRecordingAvailable) == true }
@@ -1573,13 +1560,7 @@ private fun RecorderScreen(
       },
       onDeleteSelected = { pendingDeleteIds = selected.toSet() },
       onOpenRecording = { detailRecordingId = it.id },
-      onDownloaded = { downloaded ->
-        recordingFilter = if (downloaded.kind == RecordingKind.MERGED) RecordingListFilter.MERGED else RecordingListFilter.ORIGINAL
-        selected.clear()
-        onMessage("下载完成")
-      },
       onDeleteRecording = { pendingDeleteIds = setOf(it.id) },
-      onMessage = onMessage,
     )
   }
 
@@ -1677,12 +1658,6 @@ private fun RecorderScreen(
         }
       },
       onDelete = { pendingDeleteIds = setOf(item.id) },
-      onDownloaded = { downloaded ->
-        detailRecordingId = null
-        recordingFilter = if (downloaded.kind == RecordingKind.MERGED) RecordingListFilter.MERGED else RecordingListFilter.ORIGINAL
-        selected.clear()
-        onMessage("下载完成")
-      },
       onMessage = onMessage,
     )
   }
@@ -1699,18 +1674,6 @@ private fun RecorderScreen(
           if (targets.any { it.uploadState == UploadState.PROCESSING || it.uploadState == UploadState.UPLOADING }) {
             pendingDeleteIds = emptySet()
             onMessage("此录音正在转换或上传，请完成后再修改或删除")
-          } else if (recordingFilter == RecordingListFilter.UPLOADED) {
-            scope.launch {
-              runCatching {
-                  targets.forEach { firebaseRepository.deleteUploadedRecordingMetadata(it) }
-                }
-                .onSuccess {
-                  selected.removeAll(ids)
-                  if (detailRecordingId?.let { it in ids } == true) detailRecordingId = null
-                  pendingDeleteIds = emptySet()
-                }
-                .onFailure { onMessage(it.message ?: "删除失败") }
-            }
           } else {
             targets.forEach(::deleteLocalRecordingFile)
             appStore.deleteRecordings(ids)
@@ -2078,13 +2041,11 @@ private fun RecordingListScreen(
   onUploadSelected: () -> Unit,
   onDeleteSelected: () -> Unit,
   onOpenRecording: (RecordingItem) -> Unit,
-  onDownloaded: (RecordingItem) -> Unit,
   onDeleteRecording: (RecordingItem) -> Unit,
-  onMessage: (String) -> Unit,
 ) {
   val selectableIds =
     visibleRecordings
-      .filter { item -> recordingFilter == RecordingListFilter.UPLOADED || isLocalRecordingAvailable(item) }
+      .filter(::isLocalRecordingAvailable)
       .map { it.id }
   val allSelectableSelected = selectableIds.isNotEmpty() && selectableIds.all { it in selected }
 
@@ -2182,12 +2143,10 @@ private fun RecordingListScreen(
           item = item,
           selectionMode = selectionMode,
           selected = item.id in selected,
-          selectable = recordingFilter == RecordingListFilter.UPLOADED || isLocalRecordingAvailable(item),
+          selectable = isLocalRecordingAvailable(item),
           onChecked = { checked -> if (checked) selected.add(item.id) else selected.remove(item.id) },
           onOpen = { onOpenRecording(item) },
-          onDownloaded = onDownloaded,
           onDelete = { onDeleteRecording(item) },
-          onMessage = onMessage,
         )
       }
     }
@@ -2202,12 +2161,8 @@ private fun RecordingRow(
   selectable: Boolean,
   onChecked: (Boolean) -> Unit,
   onOpen: () -> Unit,
-  onDownloaded: (RecordingItem) -> Unit,
   onDelete: () -> Unit,
-  onMessage: (String) -> Unit,
 ) {
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
   val playable = isLocalRecordingAvailable(item)
   GlassCard(
     Modifier
@@ -2250,7 +2205,7 @@ private fun RecordingRow(
             }
           }
           playable -> Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFFC57AFF), modifier = Modifier.size(28.dp))
-          else -> Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Neon.Muted, modifier = Modifier.size(26.dp))
+          else -> Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Neon.Muted, modifier = Modifier.size(26.dp))
         }
       }
 
@@ -2258,13 +2213,14 @@ private fun RecordingRow(
         Text(item.name, color = Neon.Text, fontWeight = FontWeight.Bold, maxLines = 1)
         val progressText = if (item.uploadState == UploadState.UPLOADING) " · ${item.uploadProgress}%" else ""
         val errorText = item.error?.let { " · $it" }.orEmpty()
+        val stateText = if (item.uploadState == UploadState.UPLOADED) "UPLOADED" else "LOCAL"
         LocalizedText(
-          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · ${if (item.remoteListing) "CLOUD" else "LOCAL"}$progressText$errorText",
+          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · $stateText$progressText$errorText",
           color = Neon.Muted,
           style = MaterialTheme.typography.bodyMedium,
           maxLines = 1,
         )
-        LocalizedText(if (playable) "点击查看详情" else "云端文件", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+        LocalizedText(if (playable) "点击查看详情" else "录音文件不存在", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
       }
 
       Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2276,24 +2232,14 @@ private fun RecordingRow(
         ) {
           LocalizedText(if (item.kind == RecordingKind.MERGED) "合并" else "原声", color = Color(0xFF8BA2FF), style = MaterialTheme.typography.labelMedium)
         }
-        if (!playable && item.storageUri != null && !selectionMode) {
-          TextButton(onClick = {
-            scope.launch {
-              runCatching { firebaseRepository.downloadRecording(item) }
-                .onSuccess { onDownloaded(it) }
-                .onFailure { onMessage(it.message ?: "下载失败") }
-            }
-          }) { LocalizedText("下载", color = Neon.Success) }
-        } else {
-          Box(
-            Modifier
-              .size(44.dp)
-              .clip(RoundedCornerShape(10.dp))
-              .clickable { onDelete() },
-            contentAlignment = Alignment.Center,
-          ) {
-            Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Neon.Muted, modifier = Modifier.size(26.dp))
-          }
+        Box(
+          Modifier
+            .size(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onDelete() },
+          contentAlignment = Alignment.Center,
+        ) {
+          Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Neon.Muted, modifier = Modifier.size(26.dp))
         }
       }
     }
@@ -2306,11 +2252,9 @@ private fun RecordingDetailDialog(
   onDismiss: () -> Unit,
   onRename: (String) -> Unit,
   onDelete: () -> Unit,
-  onDownloaded: (RecordingItem) -> Unit,
   onMessage: (String) -> Unit,
 ) {
   val context = LocalContext.current
-  val scope = rememberCoroutineScope()
   val fileExtension = remember(item.id, item.name) { fileNameExtension(item.name) }
   var editableName by remember(item.id, item.name) { mutableStateOf(fileNameStem(item.name)) }
   var speed by remember(item.id) { mutableFloatStateOf(1.0f) }
@@ -2490,16 +2434,7 @@ private fun RecordingDetailDialog(
           }
         }
         if (!playable) {
-          LocalizedText("仅云端文件，本机不可播放。", color = MaterialTheme.colorScheme.error)
-          if (item.storageUri != null) {
-            Button(onClick = {
-              scope.launch {
-                runCatching { firebaseRepository.downloadRecording(item) }
-                  .onSuccess { onDownloaded(it) }
-                  .onFailure { onMessage(it.message ?: "下载失败") }
-              }
-            }) { LocalizedText("下载到本机") }
-          }
+          LocalizedText("录音文件不存在", color = MaterialTheme.colorScheme.error)
         }
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2691,7 +2626,6 @@ private fun <T> MutableList<T>.swap(from: Int, to: Int) {
 
 @Composable
 private fun NotesScreen(
-  notes: List<NoteItem>,
   draft: String,
   readerFontSizeSp: Float,
   onAuthChanged: (AuthUiState) -> Unit,
@@ -2727,10 +2661,8 @@ private fun NotesScreen(
 
   if (savedNotesPage) {
     SavedNotesScreen(
-      notes = notes,
       onBack = { savedNotesPage = false },
       onOpen = { readerNote = it },
-      onRefresh = { firebaseRepository.refreshNotes() },
       onMessage = onMessage,
     )
     return
@@ -2779,24 +2711,47 @@ private fun NotesScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SavedNotesScreen(
-  notes: List<NoteItem>,
   onBack: () -> Unit,
   onOpen: (NoteItem) -> Unit,
-  onRefresh: suspend () -> Unit,
   onMessage: (String) -> Unit,
 ) {
   val scope = rememberCoroutineScope()
+  var notes by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
+  var hasMore by remember { mutableStateOf(true) }
+  var isLoading by remember { mutableStateOf(false) }
   var isRefreshing by remember { mutableStateOf(false) }
-  val visibleNotes = notes.filter { !it.hidden }
+  var loadedOnce by remember { mutableStateOf(false) }
+  var loadFailed by remember { mutableStateOf(false) }
+
+  suspend fun loadPage(reset: Boolean) {
+    if (isLoading) return
+    isLoading = true
+    runCatching { firebaseRepository.loadNotesPage(reset = reset) }
+      .onSuccess { page ->
+        notes = if (reset) page.notes else (notes + page.notes).distinctBy { it.id }
+        hasMore = page.hasMore
+        loadedOnce = true
+        loadFailed = false
+      }
+      .onFailure {
+        loadFailed = true
+        onMessage(it.message ?: "笔记读取失败")
+      }
+    isLoading = false
+  }
 
   fun refresh() {
     if (isRefreshing) return
     scope.launch {
       isRefreshing = true
-      runCatching { onRefresh() }
-        .onFailure { onMessage(it.message ?: "刷新失败") }
+      loadPage(true)
       isRefreshing = false
     }
+  }
+
+  // 只有打开这个页面时才读第一页；每次 5 条。
+  LaunchedEffect(Unit) {
+    loadPage(true)
   }
 
   Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -2810,12 +2765,50 @@ private fun SavedNotesScreen(
       modifier = Modifier.weight(1f),
     ) {
       LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(visibleNotes, key = { it.id }) { note ->
+        if (!loadedOnce && isLoading) {
+          item {
+            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
+              LocalizedText("加载中…", color = Neon.Muted, modifier = Modifier.padding(16.dp))
+            }
+          }
+        }
+        if (loadedOnce && notes.isEmpty() && !loadFailed) {
+          item {
+            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
+              LocalizedText("没有已保存笔记", color = Neon.Muted, modifier = Modifier.padding(16.dp))
+            }
+          }
+        }
+        if (loadFailed && notes.isEmpty() && !isLoading) {
+          item {
+            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
+              Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LocalizedText("笔记读取失败", color = MaterialTheme.colorScheme.error)
+                GlassButton("重试", onClick = { scope.launch { loadPage(true) } })
+              }
+            }
+          }
+        }
+        items(notes, key = { it.id }) { note ->
           GlassCard(Modifier.fillMaxWidth().clickable { onOpen(note) }, cornerRadius = 18) {
             Column(Modifier.padding(12.dp)) {
               Text(note.title, color = Neon.Text, fontWeight = FontWeight.Bold)
               Text(note.body.take(160), color = Neon.Muted)
             }
+          }
+        }
+        if (loadedOnce && hasMore && !(loadFailed && notes.isEmpty())) {
+          item {
+            GlassButton(
+              if (isLoading) "加载中…" else "加载更多",
+              modifier = Modifier.fillMaxWidth(),
+              enabled = !isLoading,
+              onClick = { scope.launch { loadPage(false) } },
+            )
+          }
+        } else if (notes.isNotEmpty()) {
+          item {
+            LocalizedText("没有更多笔记", color = Neon.Muted, modifier = Modifier.padding(12.dp))
           }
         }
       }

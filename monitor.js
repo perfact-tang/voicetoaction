@@ -85,9 +85,18 @@ const RUNNING_STAGES = ["reading_text", "transcribing", "creating_doc", "install
  * 兜底对账周期（毫秒）。Firestore 的 onSnapshot 是一条长连接，实测会静默卡死：
  * 2026-10-24 开机后约 18 分钟没有任何回调、也没有触发 error 回调，这期间 App 上传的
  * 录音完全不会被发现。因此按固定周期重扫「未处理」记录并补入队列；0 表示关闭。
- * 重扫只读 uploadState=UPLOADED 的文档（每个监视用户一次查询），量级很小。
+ *
+ * 注意：这里必须用 monitor 自己的「瞬时状态」`state == "uploaded"` 过滤，不能用
+ * App 的 `uploadState == "UPLOADED"`。后者是客户端 UI 状态，上传完成后会永久保留，
+ * 用它做对账条件会把全部历史录音每分钟重读一遍（270 条 × 1440 次 ≈ 39 万读/天）。
+ * `state` 会由本文件在处理完成/失败时改写为 success/failed，因此待处理集合会收敛。
  */
 const RECONCILE_MS = Number(process.env.MONITOR_RECONCILE_MS ?? 60000);
+/**
+ * 兜底对账单次最多读取的文档数。正常情况下待处理文档只有个位数；
+ * 上限用于防止异常积压把「每分钟一次的对账」变成读取放大器。
+ */
+const RECONCILE_LIMIT = Math.max(1, Math.trunc(Number(process.env.MONITOR_RECONCILE_LIMIT ?? 100)) || 100);
 /**
  * 启动时是否重试上一次失败的本地任务。默认关闭：是否重跑由 Firestore 文档的
  * state 决定（failed 视为终态），避免一条永久失败的录音每次重启都重跑一遍。
@@ -386,9 +395,9 @@ function recordForDocument(data, path, documentId) {
   };
 }
 
-/** 文档级终态：success 已处理完成，failed 为永久失败（不再自动重跑）。 */
+/** 文档级终态：success 已处理完成，failed 为永久失败，duplicate 为重复录音（不再自动重跑）。 */
 function isTerminalState(value) {
-  return value === "success" || value === "failed";
+  return value === "success" || value === "failed" || value === "duplicate";
 }
 
 /** 入队记录对应的任务 id（同一个 Firestore 文档只对应一个任务）。 */
@@ -420,6 +429,11 @@ function startListener() {
           }
           if (!isGsUrl(record.recordFile)) {
             if (initialized) log(`跳过（recordFile 非 gs:// URL）：${path}`);
+            // 让文档进入终态，避免它永远停留在 uploaded 被对账每分钟重读。
+            void updateFirestoreFailure(
+              { documentPath: path, documentId: change.doc.id },
+              "recordFile 不是 gs:// URL"
+            );
             continue;
           }
           if (!initialized) pendingSeen += 1;
@@ -455,13 +469,18 @@ async function reconcilePendingRecords() {
     let scanned = 0;
     let queued = 0;
     let failed = 0;
+    let hitLimit = false;
     for (const userId of users) {
       const source = userId
         ? state.db.collection("users").doc(userId).collection("recordings")
         : state.db.collectionGroup("recordings");
       let snapshot;
       try {
-        snapshot = await source.where("uploadState", "==", "UPLOADED").get();
+        snapshot = await source
+          .where("state", "==", "uploaded")
+          .limit(RECONCILE_LIMIT)
+          .get();
+        if (snapshot.size >= RECONCILE_LIMIT) hitLimit = true;
       } catch (error) {
         failed += 1;
         log(`兜底对账查询失败（${userId || "全部用户"}）：${error.message}`);
@@ -472,7 +491,14 @@ async function reconcilePendingRecords() {
         const record = recordForDocument(data, doc.ref.path, doc.id);
         if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(record.userId)) continue;
         if (isTerminalState(data.state)) continue;
-        if (!isGsUrl(record.recordFile)) continue;
+        if (!isGsUrl(record.recordFile)) {
+          // 让文档进入终态，避免它永远停留在 uploaded 被对账每分钟重读。
+          void updateFirestoreFailure(
+            { documentPath: record.documentPath, documentId: record.documentId },
+            "recordFile 不是 gs:// URL"
+          );
+          continue;
+        }
         scanned += 1;
         const jobId = jobIdFor(record);
         const before = state.jobs.find((job) => job.id === jobId);
@@ -487,6 +513,9 @@ async function reconcilePendingRecords() {
       state.reconcileLogged = true;
       const suffix = failed > 0 ? `，查询失败 ${failed} 个用户` : "";
       log(`兜底对账：待处理 ${scanned} 条，入队 ${queued} 条${suffix}。`);
+    }
+    if (hitLimit) {
+      log(`兜底对账：本轮达到读取上限 ${RECONCILE_LIMIT} 条，剩余记录将在下一轮处理。`);
     }
     return { scanned, queued };
   } finally {
@@ -508,6 +537,19 @@ function startReconcile() {
 
 /* ---------------- 任务队列 ---------------- */
 
+/**
+ * 把文档状态恢复为终态。用于「同一个录音被重新上传，但本地已经有成功任务」的场景：
+ * enqueueRecord 会跳过重复处理，如果不把 state 改回 success，这条文档会一直停留在
+ * uploaded，被兜底对账每分钟重读一次。
+ */
+function restoreTerminalDocumentState(documentPath, stage) {
+  if (!state.db || !documentPath || !isTerminalState(stage)) return;
+  state.db
+    .doc(documentPath)
+    .set({ state: stage }, { merge: true })
+    .catch((error) => log(`回写 Firestore 终态失败（${documentPath}）：${error.message}`));
+}
+
 function enqueueRecord(record) {
   const now = nowMs();
   const id = jobIdFor(record);
@@ -521,6 +563,8 @@ function enqueueRecord(record) {
   );
   if (duplicate) {
     log(`跳过重复录音：${record.recordFile} 已在处理/已完成。`);
+    // 这条文档不会再有任务，必须离开 uploaded 状态，否则兜底对账会每分钟重读。
+    restoreTerminalDocumentState(record.documentPath, "duplicate");
   } else {
     const existing = state.jobs.find((job) => job.id === id);
     if (existing) {
@@ -541,6 +585,10 @@ function enqueueRecord(record) {
       } else if (existing.stage === "queued") {
         existing.updatedAt = now;
         shouldSpawn = true;
+      } else if (existing.stage === "success") {
+        // 已成功处理过的文档被重新上传时不再建重复任务，但要把 state 恢复为
+        // success，否则它会永久停留在 uploaded，被兜底对账每分钟重读。
+        restoreTerminalDocumentState(record.documentPath, existing.stage);
       }
     } else {
       state.jobs.push({

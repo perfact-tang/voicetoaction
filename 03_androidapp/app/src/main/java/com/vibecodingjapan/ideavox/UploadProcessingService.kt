@@ -119,7 +119,7 @@ class UploadProcessingService : Service() {
     if (items.isEmpty()) throw IllegalStateException("找不到要上传的录音文件，请返回录音列表重新选择")
     val missingCount = ids.size - items.size
     if (missingCount > 0) throw IllegalStateException("有 $missingCount 个录音文件已不存在，请重新选择后上传")
-    val unavailable = items.firstOrNull { item -> item.remoteListing || !File(item.filePath).exists() }
+    val unavailable = items.firstOrNull { item -> !File(item.filePath).exists() }
     if (unavailable != null) throw IllegalStateException("录音文件不可用：${unavailable.name}")
     return when (mode) {
       UploadProcessMode.MERGED -> processMerged(items, format, speed, language)

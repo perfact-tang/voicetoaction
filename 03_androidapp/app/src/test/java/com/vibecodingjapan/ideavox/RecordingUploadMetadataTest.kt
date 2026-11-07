@@ -36,6 +36,8 @@ class RecordingUploadMetadataTest {
     assertEquals("id-1", map["id"])
     assertEquals("MERGED", map["kind"])
     assertEquals("UPLOADED", map["uploadState"])
+    // Backend processing state: transient, unlike the permanent UI uploadState.
+    assertEquals("uploaded", map["state"])
     assertEquals(100, map["uploadProgress"])
     assertEquals("ja", map["language"])
     assertEquals("gs://bucket/record/id-1", map["storageUri"])

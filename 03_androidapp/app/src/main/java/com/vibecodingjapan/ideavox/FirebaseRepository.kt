@@ -6,6 +6,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
@@ -25,6 +26,10 @@ class FirebaseRepository(private val localStore: LocalStore) {
   private val db = FirebaseFirestore.getInstance()
   private val storage = FirebaseStorage.getInstance()
   private val sharedNotesSyncMutex = Mutex()
+  private val notesPagerMutex = Mutex()
+  private var notesPagerUid: String? = null
+  private var notesCursor: DocumentSnapshot? = null
+  private var notesHasMore = false
 
   val currentUid: String?
     get() = auth.currentUser?.uid
@@ -50,32 +55,48 @@ class FirebaseRepository(private val localStore: LocalStore) {
 
   fun signOut() {
     auth.signOut()
+    resetNotesPager()
   }
 
-  suspend fun syncUserData() {
-    val uid = currentUid ?: return
-    refreshNotes(uid)
-    val userRoot = db.collection("users").document(uid)
-    val remoteRecordings = userRoot.collection("recordings").get().await().documents.mapNotNull { it.toRecordingItem() }
-    localStore.mergeRecordings(remoteRecordings)
-  }
+  /**
+   * 分页读取“已保存笔记”。每次只查 pageSize 条（默认 5）。
+   * reset=true 从第一页重新开始；reset=false 用上一页最后一条做 startAfter。
+   *
+   * 这是手机端唯一读取 notes 的入口：只有用户打开“已保存笔记”页面或点“加载更多”
+   * 时才会执行，登录/启动不再自动全量同步笔记。
+   */
+  suspend fun loadNotesPage(reset: Boolean, pageSize: Int = NOTES_PAGE_SIZE): NotesPage =
+    notesPagerMutex.withLock {
+      val uid = requireNotNull(currentUid) { "请先登录" }
+      if (notesPagerUid != uid) {
+        notesPagerUid = uid
+        notesCursor = null
+        notesHasMore = true
+      }
+      if (reset) {
+        notesCursor = null
+        notesHasMore = true
+      }
+      if (!notesHasMore && !reset) {
+        return@withLock NotesPage(emptyList(), false)
+      }
+      val collection =
+        db.collection("users").document(uid).collection("notes")
+          .whereEqualTo("hidden", false)
+          .orderBy("updatedAt", Query.Direction.DESCENDING)
+      val query = notesCursor?.let { collection.startAfter(it) } ?: collection
+      val snapshot = query.limit(pageSize.toLong()).get().await()
+      val pageNotes = snapshot.documents.mapNotNull { it.toNoteItem() }
+      notesCursor = snapshot.documents.lastOrNull()
+      notesHasMore = snapshot.size() >= pageSize
+      NotesPage(pageNotes, notesHasMore)
+    }
 
-  suspend fun refreshNotes() {
-    val uid = requireNotNull(currentUid) { "请先登录" }
-    syncPendingSharedNotes()
-    refreshNotes(uid)
-  }
-
-  private suspend fun refreshNotes(uid: String) {
-    val userRoot = db.collection("users").document(uid)
-    val remoteNotes =
-      userRoot.collection("notes")
-        .whereEqualTo("hidden", false)
-        .get()
-        .await()
-        .documents
-        .mapNotNull { it.toNoteItem() }
-    localStore.mergeNotes(remoteNotes)
+  /** 换账号/退出登录时清掉分页游标。 */
+  fun resetNotesPager() {
+    notesPagerUid = null
+    notesCursor = null
+    notesHasMore = false
   }
 
   /**
@@ -170,6 +191,9 @@ class FirebaseRepository(private val localStore: LocalStore) {
       throw CancellationException("已取消")
     }
     val storageUri = ref.toString()
+    // 旧后端兼容队列。当前 monitor.js 只监听 users/{uid}/recordings，不读取 /record；
+    // 下面紧接着写入的 users/{uid}/recordings 才是实际被处理的文档。
+    // 确认没有外部系统消费 /record 后，可以删除这段写入，避免集合继续增长。
     db.collection("record")
       .add(
         buildMap<String, Any> {
@@ -252,45 +276,6 @@ class FirebaseRepository(private val localStore: LocalStore) {
     }
   }
 
-  suspend fun downloadRecording(recording: RecordingItem): RecordingItem {
-    val storageUri = recording.storageUri ?: throw IllegalStateException("没有可下载的云端文件")
-    val localId = recording.remoteId ?: recording.id.removePrefix(REMOTE_RECORDING_PREFIX)
-    val safeName = FileNames.safeRecordingFileName(recording.name, localId)
-    val target = File(localStore.recordingsDir, safeName)
-    if (!recording.remoteListing) {
-      localStore.updateRecording(recording.id) { it.copy(uploadState = UploadState.PROCESSING, error = null) }
-    }
-    storage.getReferenceFromUrl(storageUri).getFile(target).await()
-    val localRecording =
-      recording.copy(
-        id = localId,
-        filePath = target.absolutePath,
-        sizeBytes = target.length().takeIf { size -> size > 0 } ?: recording.sizeBytes,
-        durationMs = if (target.extension.equals("wav", ignoreCase = true)) WavAudio.durationMs(target) else recording.durationMs,
-        uploadState = UploadState.LOCAL,
-        uploadProgress = 0,
-        storageUri = null,
-        error = null,
-        remoteId = null,
-        remoteListing = false,
-      )
-    localStore.upsertRecording(localRecording)
-    recording.remoteId?.let { localStore.markRemoteRecordingDownloaded(it) }
-    return localRecording
-  }
-
-  suspend fun deleteUploadedRecordingMetadata(recording: RecordingItem) {
-    val uid = requireNotNull(currentUid) { "请先登录" }
-    val remoteId = recording.remoteId ?: recording.id.removePrefix(REMOTE_RECORDING_PREFIX)
-    db.collection("users").document(uid).collection("recordings").document(remoteId).delete().await()
-    localStore.deleteRecordings(setOf(recording.id))
-    if (!recording.remoteListing && isLocalRecordingAvailable(recording)) {
-      localStore.updateRecording(recording.id) {
-        it.copy(uploadState = UploadState.LOCAL, uploadProgress = 0, storageUri = null, error = null, remoteId = null, remoteListing = false)
-      }
-    }
-  }
-
   private suspend fun isVip(uid: String): Boolean {
     val doc = db.collection("userinfo").document(uid).get().await()
     return doc.getString("usertype") == "vip"
@@ -316,30 +301,6 @@ class FirebaseRepository(private val localStore: LocalStore) {
     }
   }
 
-  private fun DocumentSnapshot.toRecordingItem(): RecordingItem? {
-    val remoteId = getString("id") ?: this.id
-    return RecordingItem(
-      id = "$REMOTE_RECORDING_PREFIX$remoteId",
-      name = getString("name") ?: "$remoteId.wav",
-      filePath = "",
-      createdAt = getLong("createdAt") ?: 0L,
-      durationMs = getLong("durationMs") ?: 0L,
-      sizeBytes = getLong("sizeBytes") ?: 0L,
-      kind = runCatching { RecordingKind.valueOf(getString("kind") ?: RecordingKind.ORIGINAL.name) }.getOrDefault(RecordingKind.ORIGINAL),
-      uploadState = runCatching { UploadState.valueOf(getString("uploadState") ?: UploadState.UPLOADED.name) }.getOrDefault(UploadState.UPLOADED),
-      uploadProgress = (getLong("uploadProgress") ?: 100L).toInt(),
-      storageUri = getString("storageUri"),
-      error = getString("error"),
-      remoteId = remoteId,
-      remoteListing = true,
-      aicallingId = getString("aicallingid") ?: getString("aicallingId"),
-      aicallingTitle = getString("aicallingTitle"),
-      aicallingInfo = getString("aicallingInfo"),
-      serviceId = getString("serviceId"),
-      serviceType = getString("serviceType"),
-    )
-  }
-
   private fun DocumentSnapshot.toAICallingItem(language: AppLanguage): AICallingItem? {
     val raw = data ?: return null
     val values = HashMap<String, Any?>()
@@ -348,7 +309,8 @@ class FirebaseRepository(private val localStore: LocalStore) {
   }
 
   companion object {
-    private const val REMOTE_RECORDING_PREFIX = "remote:"
+    /** 笔记分页大小：打开笔记页/点“加载更多”时，每次只读 5 条。 */
+    private const val NOTES_PAGE_SIZE = 5
     /** CMS 的服务集合，呼叫对象的唯一来源。 */
     private const val ALLALSERVICE_COLLECTION = "allalservice"
   }

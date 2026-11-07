@@ -23,8 +23,26 @@
             <div><dt>项目</dt><dd id="adminProject">-</dd></div>
             <div><dt>监听状态</dt><dd id="adminStatus">-</dd></div>
             <div><dt>用户字段</dt><dd id="userIdField">uid</dd></div>
-            <div><dt>监视用户</dt><dd id="userList" class="user-list">-</dd></div>
           </dl>
+          <section class="user-manage">
+            <div class="user-manage-head">
+              <span class="user-label">监视账户</span>
+              <span id="userCount" class="user-count">-</span>
+            </div>
+            <div id="userList" class="user-list">-</div>
+            <form id="addUserForm" class="user-form" autocomplete="off">
+              <input
+                id="addUserInput"
+                type="text"
+                maxlength="128"
+                spellcheck="false"
+                placeholder="输入用户 ID，例如 VQLz7u0mteaGCgHd0LpUAXY06Jf2"
+                aria-label="要添加的监视用户 ID"
+              />
+              <button id="addUserBtn" class="primary" type="submit">添加账户</button>
+            </form>
+            <p id="userHint" class="hint">增删立即生效，无需重启；修改会保存到 monitor-data/monitored-users.json。</p>
+          </section>
         </div>
 
         <div class="card">

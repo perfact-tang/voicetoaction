@@ -1,6 +1,6 @@
 # VoiceToAction AI — Monitor 监控程序（Firebase Admin 自动监听）
 
-纯 Node.js 服务。**node server.js 就是"声音监控程序"本体**：启动即自动监听 Firestore，处理录音并生成 Google Doc；**Web 页面只是监视仪表盘**，开不开都不影响后台运行。
+纯 Node.js 服务。**node server.js 就是"声音监控程序"本体**：启动即自动监听 Firestore，处理录音并生成 Google Doc；**Web 页面是监视仪表盘 + 监视账户管理**，页面开不开都不影响后台运行。
 
 ## 工作流程（全自动）
 
@@ -10,7 +10,8 @@
 ```
 服务启动 → Firebase Admin（服务账号）连接
         → 自动监听 Firestore collectionGroup("recordings")
-        → 只处理 .env 中 MONITOR_USER_IDS 指定的用户（文档字段 MONITOR_USER_ID_FIELD）的录音
+        → 只处理「监视账户」列表中的用户（文档字段 MONITOR_USER_ID_FIELD）的录音
+          （初始值来自 .env 的 MONITOR_USER_IDS；之后可在 Web 页面增删，无需重启）
         → 下载 storageUri（gs://）
         →
         ├─ kind = "Markdown"（storageUri 是文本 md 文件，不是录音）
@@ -32,7 +33,7 @@
 
         → 回写 Firestore（state: success/failed）
         → FCM 推送通知到 App（「○○ 执行完毕」/「○○ 执行失败」）
-        → Web 页面（SSE）实时显示：后台状态 / 处理历史 / 运行日志
+        → Web 页面（SSE）实时显示：后台状态 / 处理历史 / 运行日志，并可增删监视账户
 ```
 
 ### 输入类型：`kind`（录音 / Markdown 文本）
@@ -60,7 +61,7 @@
 | `scripts/faster_whisper_transcribe.py` | Python 转录进程（.venv 内 faster-whisper，回退引擎） |
 | `scripts/stt-engines.js` | STT 引擎路由（默认 SenseVoice；语种不支持 / 后端不可用 → faster-whisper） |
 | `01_aiskillsrunner/` | 调用本机 dsh 执行 skill 的 CLI（支持 `--installurl` / `--force-install`） |
-| `public/` | 只读监视仪表盘（状态卡片 + 处理历史 + 日志流） |
+| `public/` | 监视仪表盘（状态卡片 + 监视账户增删 + 处理历史 + 日志流） |
 
 ## 快速开始
 
@@ -70,7 +71,7 @@ cp .env.example .env
 #    FIREBASE_ADMIN_KEY_PATH    服务账号 JSON 路径（必填）
 #    GOOGLE_OAUTH_CLIENT_PATH   Drive OAuth 客户端 JSON 路径（必填）
 #    GOOGLE_DRIVE_FOLDER_ID     输出文件夹 ID（可选，可用 aicallingid 覆盖）
-#    MONITOR_USER_IDS           只监视的用户 ID，逗号分隔（如 uid1,uid2）
+#    MONITOR_USER_IDS           初始监视的用户 ID，逗号分隔（之后可在 Web 页面增删）
 #    MONITOR_USER_ID_FIELD      用户 ID 字段名（默认 uid）
 #    STT_ENGINE                 STT 引擎：sensevoice（默认）/ faster-whisper
 #    WHISPER_MODEL              回退引擎的模型（默认 faster:small）
@@ -84,6 +85,21 @@ cp .env.example .env
 启动后自动开始监听（日志会打印 Admin 连接与监听信息）。浏览器打开 http://localhost:15888 查看仪表盘。
 
 **唯一一次性操作**：首次需要点击仪表盘上的 **Connect Google** 完成 Drive 授权（OAuth 客户端须为"桌面应用"类型，重定向 URI 含 `http://localhost`）。授权后 token 存于 `monitor-data/drive/oauth-token.json`，之后无需再操作。
+
+### 监视多个账户（Web 页面管理）
+
+仪表盘左侧「FIREBASE ADMIN」卡片底部有 **监视账户** 区域：
+
+1. 在输入框粘贴 Firebase 用户 UID（例如 `VQLz7u0mteaGCgHd0LpUAXY06Jf2`），点 **添加账户**；
+2. 已添加的账户以小标签显示，标签上的 **×** 可停止监听该账户；
+3. 增删**立即生效**，无需重启服务；列表保存到 `monitor-data/monitored-users.json`，重启后继续有效。
+
+规则与原来一致：
+
+- 列表非空 = 只处理列表中账户的录音（支持任意多个）；
+- 列表为空 = 监听**全部用户**（建议至少保留一个账户；删除最后一个时页面会二次确认）；
+- 删除账户不会中断已经在处理中的任务，只是不再接收该账户之后的新录音；
+- 首次启动若 `monitored-users.json` 不存在，则用 `.env` 的 `MONITOR_USER_IDS` 初始化；之后 Web 页面保存的列表优先。
 
 ## 局域网访问（端口 15888）
 
@@ -114,7 +130,7 @@ cp .env.example .env
 | `FIREBASE_ADMIN_KEY_PATH` | ✅ | Firebase 服务账号 JSON 路径（控制台 → 项目设置 → 服务账号） |
 | `GOOGLE_OAUTH_CLIENT_PATH` | ✅ | Google Drive OAuth 客户端 JSON 路径（桌面应用类型） |
 | `GOOGLE_DRIVE_FOLDER_ID` | 可选 | 默认输出文件夹 ID（记录文档 `aicallingid` 可覆盖） |
-| `MONITOR_USER_IDS` | 建议 | 只监视的用户 ID，**逗号分隔复数**；留空 = 全部用户 |
+| `MONITOR_USER_IDS` | 建议 | **初始**监视的用户 ID，逗号分隔复数；留空 = 全部用户。启动后可在 Web 页面增删，页面列表优先 |
 | `MONITOR_USER_ID_FIELD` | 可选 | 记录文档中用户 ID 字段名（默认 `uid`） |
 | `STT_ENGINE` | 可选 | `sensevoice`（默认，SenseVoice-Small）/ `faster-whisper`；见下文「STT 引擎」 |
 | `WHISPER_MODEL` | 可选 | **回退引擎**用的模型：faster:tiny / base / small / medium / large-v3 / distil-large-v3 |
@@ -377,14 +393,14 @@ zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不
 
 | 路径 | 用途 |
 | :--- | :--- |
-| `public/` | 只读监视仪表盘 |
+| `public/` | 监视仪表盘（状态卡片 + 监视账户增删 + 处理历史 + 日志流） |
 | `server.js` | 入口（读 .env、启动、HTTP/SSE） |
 | `monitor.js` | Monitor 运行时（Admin、监听、队列、编排、推送） |
 | `monitor-skills.js` | Skills 本地版本登记 / 比对 / 重装 / 调用 aiskillsrunner |
 | `monitor-notify.js` | FCM 令牌读取与推送 |
 | `scripts/send-test-push.mjs` | 手动发测试推送 + 等待手机回执（排查通知问题） |
 | `monitor-sidecar/index.js` | Drive / Docs 侧车 |
-| `monitor-data/` | 任务历史（jobs.json）、Drive token、临时目录、`skills/`（Skill 安装）、`stt/`（本地 STT 文本）（gitignore） |
+| `monitor-data/` | 任务历史（jobs.json）、监视账户（monitored-users.json）、Drive token、临时目录、`skills/`（Skill 安装）、`stt/`（本地 STT 文本）（gitignore） |
 | `models/faster-whisper/` | faster-whisper 模型下载目录 |
 | `models/sensevoice/` | SenseVoice 模型目录（int8 约 240MB + silero-VAD），gitignore |
 | `.env.example` / `.env` | 配置模板 / 实际配置（gitignore） |
@@ -393,14 +409,14 @@ zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不
 
 - `GET /api/health` — 后端 / Admin / SenseVoice / faster-whisper / 监视用户状态
 - `GET /api/monitor/state` — 完整快照（config / jobs / logs）
-- `POST /api/monitor/command` — `monitor_connect_drive`（一次性 Drive 授权）
+- `POST /api/monitor/command` — `monitor_connect_drive`（一次性 Drive 授权）、`monitor_add_user`（args: `{ userId }`）、`monitor_remove_user`（args: `{ userId }`）
 - `GET /api/monitor/events` — SSE（snapshot / log 实时推送）
 
 ## 说明
 
 - 无 GPU 也能运行：SenseVoice-Small 用 ONNX int8、faster-whisper 用 CTranslate2 int8，都是纯 CPU 推理。
 - 监听只处理**新出现的**录音记录（跳过首次快照的存量文档与 `state: success` 记录）。
-- 服务进程就是监控程序：`nohup ./run-ubuntu.sh &` 或 systemd 可后台常驻；页面只是查看器。
+- 服务进程就是监控程序：`nohup ./run-ubuntu.sh &` 或 systemd 可后台常驻；页面用于查看状态与增删监视账户。
 - 模型下载慢（国内网络）：`export HF_ENDPOINT=https://hf-mirror.com` 后重跑脚本。
 
 

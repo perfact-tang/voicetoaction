@@ -1,7 +1,7 @@
 # VoiceToAction AI Monitor — Ubuntu 开机自启指南
 
 > 目标：**开机后无需手动操作，Monitor 自动运行**（Firebase Admin 自动监听 → faster-whisper 转录 → Google Doc）。
-> Web 页面（http://localhost:15888）只是监视仪表盘，开不开都不影响后台。
+> Web 页面（http://localhost:15888）用于监视状态与增删监视账户，开不开都不影响后台。
 
 ---
 

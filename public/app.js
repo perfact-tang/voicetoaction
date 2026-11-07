@@ -1,12 +1,13 @@
-/* VoiceToAction AI Monitor — 只读监视仪表盘
+/* VoiceToAction AI Monitor — 监视仪表盘
  *
  * 后台（node server.js）是"声音监控程序"本体：Firebase Admin 自动监听 Firestore
- * recordings 集合（只处理 .env 中 MONITOR_USER_IDS 指定的用户），自动下载、转录、
- * 生成 Google Doc、回写 Firestore。本页面只是查看器：
- *  - 显示后台状态（Admin / Drive / 监视用户 / 模型）
+ * recordings 集合（只处理「监视账户」列表中的用户，页面可增删），自动下载、转录、
+ * 生成 Google Doc、回写 Firestore。本页面是查看器 + 账户管理：
+ *  - 显示后台状态（Admin / Drive / 监视账户 / 模型）
+ *  - 添加 / 删除监视用户（立即生效，无需重启）
  *  - 显示处理历史与实时进度（SSE）
  *  - 显示运行日志
- * 页面开不开都不影响后台运行。唯一操作：首次需要一次「Connect Google」Drive 授权。
+ * 页面开不开都不影响后台运行。首次需要一次「Connect Google」Drive 授权。
  */
 
 const state = {
@@ -22,6 +23,11 @@ const els = {
   adminStatus: $("adminStatus"),
   userIdField: $("userIdField"),
   userList: $("userList"),
+  userCount: $("userCount"),
+  addUserForm: $("addUserForm"),
+  addUserInput: $("addUserInput"),
+  addUserBtn: $("addUserBtn"),
+  userHint: $("userHint"),
   driveAccount: $("driveAccount"),
   driveFolder: $("driveFolder"),
   whisperModel: $("whisperModel"),
@@ -83,15 +89,27 @@ function renderSnapshot(snapshot) {
 
   els.userList.innerHTML = "";
   const users = config.monitoredUsers || [];
+  els.userCount.textContent = users.length ? `${users.length} 个账户` : "全部用户（未限制）";
+  els.userCount.classList.toggle("bad", users.length === 0);
   if (users.length === 0) {
     const span = document.createElement("span");
-    span.textContent = "（全部用户）";
+    span.className = "user-empty";
+    span.textContent = "列表为空：当前监听全部用户。添加账户后只监听列表内的用户。";
     els.userList.append(span);
   } else {
     for (const uid of users) {
       const chip = document.createElement("span");
-      chip.className = "chip";
-      chip.textContent = uid;
+      chip.className = "chip user-chip";
+      const label = document.createElement("span");
+      label.textContent = uid;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "chip-remove";
+      remove.title = `停止监听 ${uid}`;
+      remove.setAttribute("aria-label", `停止监听 ${uid}`);
+      remove.textContent = "×";
+      remove.addEventListener("click", () => removeMonitoredUser(uid));
+      chip.append(label, remove);
       els.userList.append(chip);
     }
   }
@@ -239,7 +257,83 @@ function subscribeEvents() {
   });
 }
 
-/* ---------------- 唯一操作：Connect Google ---------------- */
+/* ---------------- 监视账户管理 ---------------- */
+
+function setUserHint(text, bad = false) {
+  els.userHint.textContent = text;
+  els.userHint.classList.toggle("bad", bad);
+}
+
+function setUserBusy(busy) {
+  els.addUserBtn.disabled = busy;
+  els.addUserInput.disabled = busy;
+  els.userList.classList.toggle("busy", busy);
+}
+
+async function sendMonitorCommand(command, args = {}) {
+  const response = await fetch("/api/monitor/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ command, args })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || `请求失败（HTTP ${response.status}）`);
+  return payload;
+}
+
+async function addMonitoredUser(event) {
+  event.preventDefault();
+  const userId = els.addUserInput.value.trim();
+  if (!userId) {
+    setUserHint("请输入用户 ID。", true);
+    els.addUserInput.focus();
+    return;
+  }
+  const users = state.snapshot?.config?.monitoredUsers || [];
+  if (users.includes(userId)) {
+    setUserHint(`用户 ${userId} 已在监视列表中。`, true);
+    return;
+  }
+  setUserBusy(true);
+  try {
+    const snapshot = await sendMonitorCommand("monitor_add_user", { userId });
+    renderSnapshot(snapshot);
+    els.addUserInput.value = "";
+    setUserHint(`已添加 ${userId}，正在监听该账户。`);
+  } catch (error) {
+    setUserHint("添加失败：" + error.message, true);
+  } finally {
+    setUserBusy(false);
+  }
+}
+
+async function removeMonitoredUser(userId) {
+  const users = state.snapshot?.config?.monitoredUsers || [];
+  const isLast = users.length === 1 && users[0] === userId;
+  const message = isLast
+    ? `删除最后一个监视账户 ${userId} 后，程序会改为监听「全部用户」。确定继续吗？`
+    : `停止监听账户 ${userId}？`;
+  if (!window.confirm(message)) return;
+  setUserBusy(true);
+  try {
+    const snapshot = await sendMonitorCommand("monitor_remove_user", { userId });
+    renderSnapshot(snapshot);
+    const remaining = snapshot.config?.monitoredUsers?.length || 0;
+    if (remaining === 0) {
+      setUserHint("监视列表已清空：当前监听全部用户。", true);
+    } else {
+      setUserHint(`已删除 ${userId}，剩余 ${remaining} 个账户。`);
+    }
+  } catch (error) {
+    setUserHint("删除失败：" + error.message, true);
+  } finally {
+    setUserBusy(false);
+  }
+}
+
+els.addUserForm.addEventListener("submit", addMonitoredUser);
+
+/* ---------------- Drive 授权 ---------------- */
 
 els.connectDriveBtn.addEventListener("click", async () => {
   if (!state.snapshot?.config?.oauthClientConfigured) return;

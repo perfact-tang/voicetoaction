@@ -354,15 +354,22 @@ function handleMonitorState(_req, res) {
 }
 
 async function handleMonitorCommand(req, res) {
-  const payload = JSON.parse(await collectBody(req));
-  const command = String(payload.command || "");
-  const args = payload.args && typeof payload.args === "object" ? payload.args : {};
+  let payload;
+  try {
+    payload = JSON.parse(await collectBody(req));
+  } catch {
+    sendJson(res, 400, { error: "请求体必须是 JSON。" });
+    return;
+  }
+  const command = String(payload?.command || "");
+  const args = payload?.args && typeof payload.args === "object" ? payload.args : {};
   try {
     const snapshot = await monitor.command(command, args);
     sendJson(res, 200, snapshot);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Monitor command failed.";
-    sendJson(res, 500, { error: message });
+    const status = Number(error?.statusCode);
+    sendJson(res, Number.isInteger(status) && status >= 400 && status < 600 ? status : 500, { error: message });
   }
 }
 

@@ -3,14 +3,15 @@
  *
  * 全部 Firebase 交互由服务端通过 firebase-admin（服务账号）完成：
  *  - Firestore collectionGroup("recordings") 自动监听（启动即开始，无需手动）
- *  - 只处理 .env 中 MONITOR_USER_IDS 指定的用户（文档字段 MONITOR_USER_ID_FIELD）的录音
+ *  - 只处理「监视账户」列表中的用户（Web 页面可增删；首次来自 .env 的
+ *    MONITOR_USER_IDS，之后持久化到 monitor-data/monitored-users.json）的录音
  *  - GCS 音频下载（admin.storage）、Firestore 回写（state: success/failed）
  * 流水线：监听新记录 → 入队 → 下载 GCS 音频 → FFmpeg 转 16k wav → STT 转录
  *        （默认 SenseVoice-Small；语种不支持 / 后端不可用时回退 faster-whisper）
  *        → sidecar 创建 Google Doc → 回写 Firestore。
  *
- * 本进程（node server.js）就是"声音监控程序"本体：Web 页面只是查看器，
- * 页面开不开都不影响监听与处理。
+ * 本进程（node server.js）就是"声音监控程序"本体：Web 页面用于查看状态与增删
+ * 监视账户，页面开不开都不影响监听与处理。
  */
 import admin from "firebase-admin";
 import { spawn, execFileSync, spawnSync } from "node:child_process";
@@ -59,6 +60,8 @@ const NOTE_OUTPUT_FILES = ["笔记.json"];
 const LANGUAGE_PROMPT_SKILLS = new Set(["audio-to-note"]);
 const jobsPath = join(dataDir, "jobs.json");
 const statePath = join(dataDir, "state.json");
+/** Web 页面维护的「监视账户」列表；存在时优先于 .env 的 MONITOR_USER_IDS。 */
+const monitoredUsersPath = join(dataDir, "monitored-users.json");
 const driveTokenPath = join(dataDir, "drive", "oauth-token.json");
 const sidecarScript = join(projectRoot, "monitor-sidecar", "index.js");
 const venvPython = join(projectRoot, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -135,6 +138,57 @@ function readJsonFile(path, fallback) {
 function writeJsonFile(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(value, null, 2), "utf8");
+}
+
+/**
+ * 规范化「监视账户」列表：去空白、去重、保持输入顺序。
+ * 空数组的语义与原 MONITOR_USER_IDS 一致：不限制用户（监听全部）。
+ */
+function normalizeUserIds(value) {
+  const list = Array.isArray(value) ? value : String(value ?? "").split(",");
+  const seen = new Set();
+  const result = [];
+  for (const raw of list) {
+    const userId = String(raw ?? "").trim();
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    result.push(userId);
+  }
+  return result;
+}
+
+function userInputError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+/** 校验单个用户 ID：不能为空、不能含空白或斜杠（Firestore 路径 users/{uid}）。 */
+function validateUserId(value) {
+  const userId = String(value ?? "").trim();
+  if (!userId) throw userInputError("用户 ID 不能为空。");
+  if (userId.length > 128) throw userInputError("用户 ID 太长（最多 128 个字符）。");
+  if (/[\s/]/.test(userId)) throw userInputError("用户 ID 不能包含空格或斜杠。");
+  return userId;
+}
+
+/** 优先读取 Web 页面保存的列表；没有保存过才回退到 .env 的 MONITOR_USER_IDS。 */
+function loadMonitoredUsers(fallback) {
+  const saved = readJsonFile(monitoredUsersPath, null);
+  if (saved && Array.isArray(saved.userIds)) return normalizeUserIds(saved.userIds);
+  return normalizeUserIds(fallback);
+}
+
+function persistMonitoredUsers() {
+  writeJsonFile(monitoredUsersPath, {
+    userIds: state.config.monitoredUsers,
+    updatedAt: new Date(nowMs()).toISOString()
+  });
+}
+
+/** 空列表 = 监听全部用户；否则只处理列表内的用户。 */
+function isMonitoredUser(userId) {
+  return state.config.monitoredUsers.length === 0 || state.config.monitoredUsers.includes(userId);
 }
 
 function normalizeLanguage(value) {
@@ -460,7 +514,7 @@ function startListener() {
           const path = change.doc.ref.path;
           const record = recordForDocument(data, path, change.doc.id);
 
-          if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(record.userId)) {
+          if (!isMonitoredUser(record.userId)) {
             if (initialized) log(`跳过（非监视用户 ${record.userId || "(空)"}）：${path}`);
             continue;
           }
@@ -522,7 +576,7 @@ async function reconcilePendingRecords() {
         for (const doc of requests.docs) {
           const data = doc.data() || {};
           const record = recordForDocument(data, doc.ref.path, doc.id);
-          if (state.config.monitoredUsers.length && !state.config.monitoredUsers.includes(record.userId)) continue;
+          if (!isMonitoredUser(record.userId)) continue;
           const requested = reprocessingRecord(data, record);
           if (requested) enqueueRecord(requested);
         }
@@ -544,7 +598,7 @@ async function reconcilePendingRecords() {
       for (const doc of snapshot.docs) {
         const data = doc.data() || {};
         const record = recordForDocument(data, doc.ref.path, doc.id);
-        if (state.config.monitoredUsers.length > 0 && !state.config.monitoredUsers.includes(record.userId)) continue;
+        if (!isMonitoredUser(record.userId)) continue;
         if (isTerminalState(data.state)) continue;
         if (!isGsUrl(record.recordFile)) {
           // 让文档进入终态，避免它永远停留在 uploaded 被对账每分钟重读。
@@ -1814,6 +1868,41 @@ async function connectDrive() {
   return { authUrl };
 }
 
+/* ---------------- 监视账户管理（Web 页面） ---------------- */
+
+/** 变更生效后：写盘、刷新页面、立即补扫新账户的待处理录音。 */
+function afterMonitoredUsersChanged(message) {
+  persistMonitoredUsers();
+  log(message);
+  emitSnapshot();
+  // 监听器本身收全量 recordings；新加入账户的存量 uploaded 记录靠这次对账立刻补入队列。
+  void reconcilePendingRecords().catch((error) => log(`监视账户变更后的对账失败：${error.message}`));
+}
+
+function addMonitoredUser(value) {
+  const userId = validateUserId(value);
+  if (state.config.monitoredUsers.includes(userId)) {
+    throw userInputError(`用户 ${userId} 已在监视列表中。`, 409);
+  }
+  state.config.monitoredUsers = [...state.config.monitoredUsers, userId];
+  afterMonitoredUsersChanged(
+    `已添加监视用户：${userId}（当前 ${state.config.monitoredUsers.length} 个账户）`
+  );
+}
+
+function removeMonitoredUser(value) {
+  const userId = validateUserId(value);
+  if (!state.config.monitoredUsers.includes(userId)) {
+    throw userInputError(`用户 ${userId} 不在监视列表中。`, 404);
+  }
+  state.config.monitoredUsers = state.config.monitoredUsers.filter((entry) => entry !== userId);
+  afterMonitoredUsersChanged(
+    state.config.monitoredUsers.length === 0
+      ? `已删除监视用户：${userId}。列表为空，当前监听全部用户。`
+      : `已删除监视用户：${userId}（剩余 ${state.config.monitoredUsers.length} 个账户）`
+  );
+}
+
 /* ---------------- 对外接口 ---------------- */
 
 let emitSnapshot = () => {};
@@ -1853,6 +1942,12 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
     skillTransientRetryNames: normalizeTransientRetrySkillNames(config?.skillTransientRetryNames),
     fcmEnabled: config?.fcmEnabled !== false
   };
+
+  // Web 页面管理过的列表优先；首次启动（无 json）沿用 .env 的 MONITOR_USER_IDS。
+  state.config.monitoredUsers = loadMonitoredUsers(state.config.monitoredUsers);
+  if (existsSync(monitoredUsersPath)) {
+    log(`监视账户列表已从 ${monitoredUsersPath} 恢复`);
+  }
 
   // Skills 安装目录与 STT 输出目录（Skills 流程用；Google 流程不需要）
   mkdirSync(state.config.skillsDir, { recursive: true });
@@ -1895,6 +1990,14 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
           const snapshot = defaultSnapshot();
           snapshot._authUrl = authUrl;
           return snapshot;
+        }
+        case "monitor_add_user": {
+          addMonitoredUser(args.userId);
+          return defaultSnapshot();
+        }
+        case "monitor_remove_user": {
+          removeMonitoredUser(args.userId);
+          return defaultSnapshot();
         }
         default:
           throw new Error(`Unknown monitor command: ${command}`);

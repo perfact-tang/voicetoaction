@@ -203,6 +203,13 @@ const monitorConfig = {
   // 产物校验不过时最多再续跑几个回合（0 = 关闭；未设置 = 默认 2）。
   // headless 是单回合语义：agent 提前结束回合 = 进程退出，唯一能接着做的就是再起一个回合。
   skillResumeAttempts: process.env.SKILL_RESUME_ATTEMPTS ?? null,
+  // 模型服务临时故障（dsh: SERVER / RATE_LIMIT / TIMEOUT / TRANSPORT）时，
+  // 整个 skill 最多再原样重跑几次（0 = 关闭；未设置 = 默认 3）。
+  skillTransientRetries: process.env.SKILL_TRANSIENT_RETRIES ?? null,
+  // 临时故障重试的首次等待毫秒数（未设置 = 默认 60000，之后按 2 倍递增）。
+  skillTransientRetryDelayMs: process.env.SKILL_TRANSIENT_RETRY_DELAY_MS ?? null,
+  // 允许自动重试的 skill 名单（逗号分隔；未设置 = audio-to-note,audio-to-multilingual-blog；* = 全部）
+  skillTransientRetryNames: process.env.SKILL_TRANSIENT_RETRY_NAMES ?? null,
   // ---- FCM 推送 ----
   fcmEnabled: process.env.FCM_ENABLED !== "false"
 };

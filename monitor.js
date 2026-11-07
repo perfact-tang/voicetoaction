@@ -22,7 +22,9 @@ import { fileURLToPath } from "node:url";
 import {
   SKILL_SERVICE_TYPE,
   buildSkillResumePrompt,
+  hasRecentSkillOutput,
   inspectSkillOutputs,
+  isTransientSkillFailure,
   localSkillInstalled,
   recordLocalSkill,
   removeLocalSkill,
@@ -205,6 +207,36 @@ function normalizeSkillResumeAttempts(value) {
   return Math.min(5, Math.trunc(parsed));
 }
 
+/**
+ * 模型服务临时故障（dsh: SERVER / RATE_LIMIT / TIMEOUT / TRANSPORT）时，
+ * 整个 skill 最多再原样重跑几次。默认 3，0 = 关闭，上限 5。
+ * 这类失败不是 prompt/产物的问题，等一会儿重跑通常就好了。
+ */
+function normalizeSkillTransientRetries(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 3;
+  return Math.min(5, Math.trunc(parsed));
+}
+
+/** 临时故障重试的首次等待（毫秒），之后按 60s → 120s → 240s 翻倍；默认 60s。 */
+function normalizeSkillTransientRetryDelay(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1_000) return 60_000;
+  return Math.min(30 * 60 * 1000, Math.trunc(parsed));
+}
+
+/**
+ * 只有产物明确落在 tmpaiskill 下的 skill，才能用「本轮有没有写出目录」判断
+ * 重试是否安全（已经动手了就不自动重跑，避免重复发布）。
+ */
+const DEFAULT_TRANSIENT_RETRY_SKILL_NAMES = ["audio-to-note", "audio-to-multilingual-blog"];
+
+function normalizeTransientRetrySkillNames(value) {
+  if (value === null || value === undefined || value === "") return [...DEFAULT_TRANSIENT_RETRY_SKILL_NAMES];
+  const names = normalizeSkillNameList(value);
+  return names.includes("*") ? [] : names; // [] = 对所有 skill 生效
+}
+
 function parseGsUrl(value) {
   const match = String(value || "").match(/^gs:\/\/([^/]+)\/(.+)$/);
   if (!match) throw new Error(`recordFile 必须是 gs:// URL: ${value}`);
@@ -254,6 +286,12 @@ const state = {
     verifySkillNames: [...DEFAULT_VERIFY_SKILL_NAMES],
     /** 产物校验不过时最多再续跑几个回合（0 = 关闭）。 */
     skillResumeAttempts: 2,
+    /** 模型服务临时故障（5xx/限流/超时）时最多再原样重跑几次（0 = 关闭）。 */
+    skillTransientRetries: 3,
+    /** 临时故障重试的首次等待（毫秒），之后按 2 倍递增。 */
+    skillTransientRetryDelayMs: 60_000,
+    /** 允许自动重试临时故障的 skill 名单（[] = 全部）。 */
+    skillTransientRetryNames: [...DEFAULT_TRANSIENT_RETRY_SKILL_NAMES],
     // ---- FCM 推送 ----
     fcmEnabled: true
   },
@@ -1288,8 +1326,16 @@ async function processSkillJob(job) {
 
   // headless 单回合语义：回合提前结束 = 进程退出，续跑只能「再起一个回合」。
   // 这里的循环负责：执行 → 校验产物 → 不完整就带着「还缺什么」续跑。
+  // 另外对模型服务侧的临时故障（dsh: SERVER / RATE_LIMIT / TIMEOUT / TRANSPORT）
+  // 做有限次、带退避的原样重跑：这类失败与 prompt/产物无关，等一会儿通常就好了。
+  const transientRetriesEnabled =
+    state.config.skillTransientRetries > 0 &&
+    (state.config.skillTransientRetryNames.length === 0 ||
+      state.config.skillTransientRetryNames.includes(service.skillName));
   const loopResult = await runSkillWithResume({
     maxAttempts: maxSkillAttempts,
+    maxFailureRetries: transientRetriesEnabled ? state.config.skillTransientRetries : 0,
+    failureRetryDelayMs: state.config.skillTransientRetryDelayMs,
     inspect: () =>
       inspectSkillOutputs({
         root: skillTmpRoot,
@@ -1360,8 +1406,15 @@ async function processSkillJob(job) {
           .slice(-6)
           .join(" ")
           .slice(0, 500);
+        // 只有「确实是模型服务侧临时故障」且「本轮还没写出任何产物」时才自动重跑；
+        // 已经动手（甚至已经发布）的任务宁可记 failed 让人工确认，也不制造重复数据。
+        const retryable =
+          transientRetriesEnabled &&
+          isTransientSkillFailure(runResult.stderr, runResult.stdout) &&
+          !hasRecentSkillOutput(skillTmpRoot, skillRunStartedAtMs);
         return {
           ok: false,
+          retryable,
           error: `skill「${service.skillName}」执行失败（exit ${runResult.code}）：${reason || "无错误输出"}`
         };
       }
@@ -1380,11 +1433,27 @@ async function processSkillJob(job) {
           `第 ${event.attempt} 次执行的产物校验未通过，准备续跑（最多再试 ${event.total - event.attempt} 次）：` +
             event.error
         );
+      } else if (event.type === "failure-retry") {
+        const seconds = Math.round(event.delayMs / 1000);
+        log(
+          `skill「${service.skillName}」遇到模型服务临时故障，${seconds}s 后自动重试` +
+            `（第 ${event.retry}/${event.maxRetries} 次）：${String(event.error || "").slice(-300)}`
+        );
+        updateJob(job.id, (entry) => {
+          entry.stage = "running_skill";
+          entry.errorMessage =
+            `模型服务临时故障，${seconds}s 后自动重试（第 ${event.retry}/${event.maxRetries} 次）`;
+        });
       }
     }
   });
 
-  if (loopResult.status === "failed") return loopResult.error;
+  if (loopResult.status === "failed") {
+    const retried = loopResult.failureRetries
+      ? `（已自动重试 ${loopResult.failureRetries} 次仍失败）`
+      : "";
+    return `${loopResult.error}${retried}`;
+  }
 
   const output = loopResult.output;
   const uploadCheck = loopResult.check;
@@ -1779,6 +1848,9 @@ export function initMonitor({ config, onSnapshot, onLog } = {}) {
       return names.includes("*") ? [] : names; // [] = 名单为空 = 对所有 skill 生效
     })(),
     skillResumeAttempts: normalizeSkillResumeAttempts(config?.skillResumeAttempts),
+    skillTransientRetries: normalizeSkillTransientRetries(config?.skillTransientRetries),
+    skillTransientRetryDelayMs: normalizeSkillTransientRetryDelay(config?.skillTransientRetryDelayMs),
+    skillTransientRetryNames: normalizeTransientRetrySkillNames(config?.skillTransientRetryNames),
     fcmEnabled: config?.fcmEnabled !== false
   };
 

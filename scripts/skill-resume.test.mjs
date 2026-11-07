@@ -10,6 +10,7 @@
  *   3. runSkillWithResume：第一轮产物不完整 → 自动续跑 → 第二轮通过
  *   4. runSkillWithResume：续跑到上限仍不通过 → failed（不会假成功）
  *   5. runAiskillsrunner：--prompt 透传，续跑时不带 --reffilepath
+ *   6. 临时故障识别 + 自动重试（5xx/限流/网络；非临时错误不重试）
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
@@ -17,7 +18,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildSkillResumePrompt,
+  hasRecentSkillOutput,
   inspectSkillOutputs,
+  isTransientSkillFailure,
   runAiskillsrunner,
   runSkillWithResume
 } from "../monitor-skills.js";
@@ -217,13 +220,98 @@ console.log("5. runAiskillsrunner：--prompt / --reffilepath 组合");
   check("stdout 正常回传", resumed.stdout.includes("fake ok"));
 }
 
-/* ---------------- 6. 真实失败现场（如果本机还留着） ---------------- */
-console.log("6. 真实失败现场目录（存在才检查）");
+/* ---------------- 6. 临时故障识别与自动重试 ---------------- */
+console.log("6. 临时故障识别与自动重试");
+{
+  check("识别 dsh: SERVER 5xx", isTransientSkillFailure("dsh: SERVER: Internal Server Error (request_id: x)"));
+  check("识别 dsh: RATE_LIMIT", isTransientSkillFailure("dsh: RATE_LIMIT: slow down"));
+  check("识别 dsh: TIMEOUT", isTransientSkillFailure("dsh: TIMEOUT: 300s"));
+  check("识别 dsh: TRANSPORT", isTransientSkillFailure("dsh: TRANSPORT: fetch failed"));
+  check("识别 HTTP 503", isTransientSkillFailure("upstream HTTP 503"));
+  check("识别网络中断", isTransientSkillFailure("Error: read ECONNRESET"));
+  check("权限错误不算临时故障", !isTransientSkillFailure("dsh: AUTH: invalid key"));
+  check("参数错误不算临时故障", !isTransientSkillFailure("dsh: INVALID_REQUEST: bad"));
+  check("产物校验失败不算临时故障", !isTransientSkillFailure("产物校验失败：没有 DocID"));
+}
+{
+  const root = join(tmpRoot, "transient-output");
+  mkdirSync(root, { recursive: true });
+  const startedAtMs = Date.now();
+  makeDocDir(root, "1791443000000", ["笔记.json"], Date.now());
+  check("本次窗口内的输出目录 = 已动手", hasRecentSkillOutput(root, startedAtMs) === true);
+  check("窗口外的旧目录 = 没动手", hasRecentSkillOutput(root, startedAtMs + 200_000) === false);
+}
+{
+  const root = join(tmpRoot, "transient-retry");
+  mkdirSync(root, { recursive: true });
+  const startedAtMs = Date.now();
+  const events = [];
+  const delays = [];
+  let runCount = 0;
+  const result = await runSkillWithResume({
+    maxAttempts: 2,
+    maxFailureRetries: 3,
+    failureRetryDelayMs: 1000,
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
+    inspect: () => inspectSkillOutputs({ root, startedAtMs, files: FILES }),
+    buildResumePrompt: () => "continue",
+    run: async () => {
+      runCount += 1;
+      if (runCount <= 2) return { ok: false, retryable: true, error: "dsh: SERVER: Internal Server Error" };
+      return { ok: true, runResult: { code: 0 }, output: "done /blog/1791443034864" };
+    },
+    verify: () => ({ verified: true, docId: "1791443034864" }),
+    onEvent: (event) => events.push(event)
+  });
+  check("临时故障后重跑而不是直接失败", result.status === "verified", JSON.stringify(result));
+  check("共执行 3 次", runCount === 3, String(runCount));
+  check("只报告 2 次临时重试", result.failureRetries === 2, String(result.failureRetries));
+  check("等待时间按 1s → 2s 递增", delays.join(",") === "1000,2000", delays.join(","));
+  check("派发 failure-retry 事件", events.filter((event) => event.type === "failure-retry").length === 2);
+  check("没有误报产物续跑", events.filter((event) => event.type === "retry").length === 0);
+}
+{
+  let runCount = 0;
+  const result = await runSkillWithResume({
+    maxAttempts: 1,
+    maxFailureRetries: 2,
+    failureRetryDelayMs: 1000,
+    sleep: async () => {},
+    run: async () => {
+      runCount += 1;
+      return { ok: false, retryable: false, error: "dsh: AUTH: invalid key" };
+    },
+    verify: () => ({ verified: true })
+  });
+  check("非临时错误不重试", runCount === 1, String(runCount));
+  check("非临时错误立即 failed", result.status === "failed");
+}
+{
+  let runCount = 0;
+  const result = await runSkillWithResume({
+    maxAttempts: 1,
+    maxFailureRetries: 2,
+    failureRetryDelayMs: 1000,
+    sleep: async () => {},
+    run: async () => {
+      runCount += 1;
+      return { ok: false, retryable: true, error: "dsh: SERVER: 500" };
+    },
+    verify: () => ({ verified: true })
+  });
+  check("重试预算耗尽后失败", result.status === "failed" && runCount === 3, `${result.status}/${runCount}`);
+  check("失败结果带重试次数", result.failureRetries === 2, String(result.failureRetries));
+}
+
+/* ---------------- 7. 真实失败现场（如果本机还留着） ---------------- */
+console.log("7. 真实失败现场目录（存在才检查）");
 {
   const realRoot = join(process.env.HOME || "", "Documents", "tmpaiskill");
   try {
     statSync(realRoot);
-    const outputs = inspectSkillOutputs({ root: realRoot, startedAtMs: Date.now() - 7 * 24 * 3600 * 1000, files: FILES });
+    const outputs = inspectSkillOutputs({ root: realRoot, startedAtMs: Date.now() - 365 * 24 * 3600 * 1000, files: FILES });
     const failed = outputs.find((output) => output.docId === "1791443034864");
     check("失败目录 1791443034864 被识别为未完成", Boolean(failed) && failed.complete === false, JSON.stringify(failed));
     if (failed) {

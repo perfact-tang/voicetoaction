@@ -127,6 +127,9 @@ cp .env.example .env
 | `SKILL_VERIFY_UPLOAD` | 可选 | skill 退出码为 0 时是否再做产物校验（默认 `true`） |
 | `SKILL_VERIFY_NAMES` | 可选 | 做产物校验的 skill 名单（默认只含 `audio-to-multilingual-blog`；`*` = 全部） |
 | `SKILL_RESUME_ATTEMPTS` | 可选 | 产物不完整时自动续跑的回合数（默认 `2`，`0` = 关闭，上限 `5`） |
+| `SKILL_TRANSIENT_RETRIES` | 可选 | 模型服务临时故障（5xx / 限流 / 超时 / 网络）时自动重跑的回合数（默认 `3`，`0` = 关闭，上限 `5`） |
+| `SKILL_TRANSIENT_RETRY_DELAY_MS` | 可选 | 临时故障重试的首次等待毫秒数（默认 `60000`，之后按 2 倍递增；最小 `1000`） |
+| `SKILL_TRANSIENT_RETRY_NAMES` | 可选 | 允许临时故障自动重试的 skill 名单（默认 `audio-to-note,audio-to-multilingual-blog`；`*` = 全部） |
 | `STT_OUTPUT_DIR` | 可选 | STT 文本在本机的保存目录（默认 `monitor-data/stt`） |
 | `DSH_PERMISSION_MODE` | 可选 | 传给 `dsh` 的权限模式（默认 `danger-full-access`） |
 | `FCM_ENABLED` | 可选 | 任务结束后是否推送 FCM 通知（默认 `true`，设 `false` 关闭） |
@@ -309,7 +312,7 @@ zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不
 原因：`aiskillsrunner` 用 `dsh --profile headless`，是**单回合**语义 —— agent 一旦结束回合，
 进程立即退出，仍在运行的后台子代理（翻译）会被一并杀掉，**退出码却仍是 0**。
 
-三道防线（都已内置）：
+四道防线（都已内置）：
 
 1. **skill 侧**：`SKILL.md` 第 1.5 节要求翻译在本回合内同步完成，且最终报告最后一行必须输出
    `SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>`。`aiskillsrunner` 组成任务文本时还会额外
@@ -327,6 +330,15 @@ zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不
    只有当上一轮什么产物都没留下时，才重新附上参考文件从头重做。
    例如 2026-10-08 那次失败：`1791443034864/` 里只有 `中文.md`、`日文.md`，
    续跑提示词会直接点名缺 `英文.md`、`文章信息.json`，并在补齐后以同一个 DocID 上传。
+
+4. **后端侧（模型服务临时故障重试）**：`SKILL_TRANSIENT_RETRIES`（默认 `3`）——
+   DeepSeek 网关偶尔连续返回 5xx（日志里是
+   `dsh: SERVER: Internal Server Error (request_id: ...)`）或 `RATE_LIMIT` / `TIMEOUT` /
+   `TRANSPORT`。这不是 prompt 或产物的问题，等一会儿原样重跑通常就好了。
+   后端会在 `SKILL_TRANSIENT_RETRY_NAMES` 名单内的 skill 上按
+   `SKILL_TRANSIENT_RETRY_DELAY_MS`（默认 60s，之后 120s、240s）自动重跑；
+   **只在本轮还没写出任何产物时才重试**，已经动手/已经发布的任务宁可记 `failed`
+   让人工确认，也不制造重复 Note/文章。
 
 人工补做已产出的半成品：补上缺失文件 → 自检 4 文件 → 调用一次
 `bash monitor-data/skills/audio-to-multilingual-blog/scripts/upload-blog.sh <DocID>`。

@@ -346,6 +346,37 @@ export function inspectSkillOutputs({ root, startedAtMs, files = [], toleranceMs
   return outputs.sort((a, b) => b.mtimeMs - a.mtimeMs || b.docId.localeCompare(a.docId));
 }
 
+/** 本次运行窗口内有没有写出任何 skill 输出目录（用于判断「能不能安全重试」）。 */
+export function hasRecentSkillOutput(root, startedAtMs) {
+  return inspectSkillOutputs({ root, startedAtMs, files: [] }).length > 0;
+}
+
+/**
+ * 判断一次 skill 失败是不是**模型服务侧的临时故障**。
+ *
+ * dsh 的 5xx 会在 stderr 打一行 `dsh: SERVER: Internal Server Error (request_id: ...)`，
+ * 限流 / 超时 / 网络中断分别是 `RATE_LIMIT` / `TIMEOUT` / `TRANSPORT`。这类失败通常
+ * 重跑一次就好了；而权限、参数、产物校验失败重跑也没用，不能混为一谈。
+ *
+ * 只做粗粒度分类（调用方还会用「本轮有没有写出产物」再兜一层），
+ * 避免把永久性错误当成临时故障反复烧配额。
+ */
+const TRANSIENT_SKILL_FAILURE_PATTERNS = [
+  /\bdsh:\s*(?:SERVER|RATE_LIMIT|TIMEOUT|TRANSPORT|EMPTY_RESPONSE)\b/i,
+  /\bHTTP[ _-]?(?:500|502|503|504)\b/i,
+  /\b(?:internal server error|bad gateway|service unavailable|gateway timeout)\b/i,
+  /\b(?:overloaded|too many requests)\b/i,
+  /\b(?:ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ECONNREFUSED)\b/,
+  /\b(?:socket hang up|fetch failed|network error)\b/i
+];
+
+/** @param {...(string|undefined|null)} texts 失败输出（stderr / stdout / 错误信息） */
+export function isTransientSkillFailure(...texts) {
+  const source = texts.map((text) => String(text || "")).join("\n");
+  if (!source.trim()) return false;
+  return TRANSIENT_SKILL_FAILURE_PATTERNS.some((pattern) => pattern.test(source));
+}
+
 /**
  * 生成「续跑」提示词。
  *
@@ -419,26 +450,42 @@ export function buildSkillResumePrompt({
  *
  * 回调约定：
  *   - run({ attempt, isResume, attachRef, resumePrompt, outputs })
- *       → { ok: true, runResult, output } | { ok: false, error }
+ *       → { ok: true, runResult, output }
+ *       | { ok: false, error, retryable?: boolean }
+ *     `retryable: true` 表示这是一次模型服务侧的临时故障（5xx / 限流 / 网络），
+ *     且本轮还没有写出任何产物 —— 值得等一会儿原样重跑，而不是直接记永久失败。
  *   - verify({ attempt, isResume, output, runResult, outputs })
  *       → { verified: true, docId } | { skipped: true, reason } | { error: "..." }
  *     返回对象里没有 error 即视为「产物已就绪」，循环结束。
  *   - inspect({ attempt }) → outputs（见 inspectSkillOutputs）
  *   - buildResumePrompt({ attempt, outputs }) → string
- *   - onEvent(event) → 可选，用于打日志（event.type: attempt | retry）
+ *   - onEvent(event) → 可选，用于打日志
+ *      （event.type: attempt | retry | failure-retry）
+ *
+ * `maxFailureRetries` 是临时故障的**全局**重试预算（默认 0 = 不重试），
+ * 与产物不完整时的续跑预算（maxAttempts）相互独立：
+ *   - 续跑：上一轮跑完了，但没做完 → 换一个「接着做」的提示词再起一回合；
+ *   - 临时故障重试：这一轮根本没跑起来（模型 5xx）→ 等一会儿用同样的参数再跑。
  *
  * @returns {Promise<{status:"verified"|"skipped", check:object, attempts:number, output:string}
- *                  | {status:"failed", error:string, attempts:number, output:string}>}
+ *                  | {status:"failed", error:string, attempts:number, output:string, failureRetries:number}>}
  */
 export async function runSkillWithResume({
   maxAttempts = 1,
+  maxFailureRetries = 0,
+  failureRetryDelayMs = 60_000,
   run,
   verify,
   inspect,
   buildResumePrompt,
-  onEvent = () => {}
+  onEvent = () => {},
+  /** 可注入，测试时避免真的等待。 */
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 } = {}) {
   const total = Math.max(1, Math.trunc(Number(maxAttempts) || 1));
+  const failureRetryLimit = Math.max(0, Math.trunc(Number(maxFailureRetries) || 0));
+  const baseRetryDelayMs = Math.max(0, Number(failureRetryDelayMs) || 0);
+  let failureRetries = 0;
   let output = "";
   let check = null;
   let lastError = "skill 执行结束，但没有产出可校验的产物。";
@@ -452,13 +499,33 @@ export async function runSkillWithResume({
     const attachRef = !isResume || outputs.length === 0;
 
     onEvent({ type: "attempt", attempt, total, isResume, outputs });
-    const outcome = await run({ attempt, isResume, attachRef, resumePrompt, outputs });
+    let outcome;
+    // 临时故障（模型 5xx / 限流 / 网络）原样重跑同一回合；只有真正跑起来之后
+    // 才进入产物校验。重试预算耗尽后仍失败才向外报错。
+    for (;;) {
+      outcome = await run({ attempt, isResume, attachRef, resumePrompt, outputs });
+      if (outcome && outcome.ok === true) break;
+      if (!outcome || outcome.retryable !== true || failureRetries >= failureRetryLimit) break;
+      failureRetries += 1;
+      const delayMs = Math.round(baseRetryDelayMs * 2 ** (failureRetries - 1));
+      onEvent({
+        type: "failure-retry",
+        attempt,
+        total,
+        retry: failureRetries,
+        maxRetries: failureRetryLimit,
+        delayMs,
+        error: outcome.error || "skill 执行失败。"
+      });
+      if (delayMs > 0) await sleep(delayMs);
+    }
     if (!outcome || outcome.ok !== true) {
       return {
         status: "failed",
         error: (outcome && outcome.error) || "skill 执行失败。",
         attempts: attempt,
-        output
+        output,
+        failureRetries
       };
     }
     output = String(outcome.output || "");
@@ -469,7 +536,8 @@ export async function runSkillWithResume({
         status: check && check.verified ? "verified" : "skipped",
         check: check || { skipped: true },
         attempts: attempt,
-        output
+        output,
+        failureRetries
       };
     }
 
@@ -478,5 +546,5 @@ export async function runSkillWithResume({
     onEvent({ type: "retry", attempt, total, error: lastError, outputs });
   }
 
-  return { status: "failed", error: lastError, attempts: total, output };
+  return { status: "failed", error: lastError, attempts: total, output, failureRetries };
 }

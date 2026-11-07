@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
@@ -112,12 +113,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -555,10 +558,8 @@ private fun formatRecordingCreatedAt(ms: Long): String =
   SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(ms))
 
 private enum class RecordingListFilter(val label: String) {
-  ALL("全部文件"),
-  ORIGINAL("原文件"),
-  MERGED("合并文件"),
-  UPLOADED("已上传文件"),
+  ORIGINAL("录音"),
+  UPLOADED("上传成功"),
 }
 
 private enum class AICallingPhase {
@@ -648,12 +649,13 @@ private fun NeonSurface(content: @Composable () -> Unit) {
 private fun GlassCard(
   modifier: Modifier = Modifier,
   cornerRadius: Int = 22,
+  opaque: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   Surface(
     modifier = modifier,
     shape = RoundedCornerShape(cornerRadius.dp),
-    color = Neon.Panel,
+    color = if (opaque) Neon.Panel.copy(alpha = 1f) else Neon.Panel,
     border = BorderStroke(1.dp, Neon.Stroke),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
@@ -1267,9 +1269,14 @@ private fun RecorderScreen(
   var uploadCallingError by remember { mutableStateOf<String?>(null) }
   var loginForUpload by remember { mutableStateOf(false) }
   var recordingFilter by remember { mutableStateOf(RecordingListFilter.ORIGINAL) }
-  var filterMenuExpanded by remember { mutableStateOf(false) }
   var pendingUploadIntent by remember { mutableStateOf<Intent?>(null) }
   var detailRecordingId by remember { mutableStateOf<String?>(null) }
+  var uploadedDetailId by remember { mutableStateOf<String?>(null) }
+  var reprocessPicker by remember { mutableStateOf(false) }
+  var reprocessSubmitting by remember { mutableStateOf(false) }
+  var reprocessItems by remember { mutableStateOf<List<AICallingItem>>(emptyList()) }
+  var reprocessLoading by remember { mutableStateOf(false) }
+  var reprocessError by remember { mutableStateOf<String?>(null) }
   var pendingDeleteIds by remember { mutableStateOf<Set<String>>(emptySet()) }
   var recordingsPage by remember { mutableStateOf(false) }
   var aiPhase by remember { mutableStateOf(AICallingPhase.HOME) }
@@ -1284,16 +1291,9 @@ private fun RecorderScreen(
   var callInputRoute by remember { mutableStateOf(CallInputRoute.EARPIECE) }
   var loginForAICalling by remember { mutableStateOf(false) }
   var proximityBlackout by remember { mutableStateOf(false) }
-  val visibleRecordings =
-    recordings.filter { item ->
-      when (recordingFilter) {
-        RecordingListFilter.ALL -> isLocalRecordingAvailable(item)
-        RecordingListFilter.ORIGINAL -> item.kind == RecordingKind.ORIGINAL && isLocalRecordingAvailable(item)
-        RecordingListFilter.MERGED -> item.kind == RecordingKind.MERGED && isLocalRecordingAvailable(item)
-        // 不再读取 users/{uid}/recordings；这里的“已上传”只看本机文件的上传状态。
-        RecordingListFilter.UPLOADED -> item.uploadState == UploadState.UPLOADED && isLocalRecordingAvailable(item)
-      }
-    }
+  val originalRecordings = RecordingLists.originals(recordings)
+  val uploadedRecordings = RecordingLists.uploaded(recordings)
+  val visibleRecordings = if (recordingFilter == RecordingListFilter.ORIGINAL) originalRecordings else uploadedRecordings
   val detailRecording = detailRecordingId?.let { id -> recordings.find { it.id == id } }
   val permissions =
     buildList {
@@ -1333,6 +1333,18 @@ private fun RecorderScreen(
       uploadNotificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     } else {
       context.startForegroundService(intent)
+    }
+  }
+
+  fun loadReprocessingTargets() {
+    reprocessPicker = true
+    reprocessLoading = true
+    reprocessError = null
+    scope.launch {
+      runCatching { firebaseRepository.loadAICallingItems(AppLanguageManager.current(context)) }
+        .onSuccess { items -> reprocessItems = items.filter { it.serviceType == ServiceTypes.DEEPSEEK_HARNESS } }
+        .onFailure { reprocessError = it.message ?: "呼叫对象读取失败" }
+      reprocessLoading = false
     }
   }
 
@@ -1473,7 +1485,7 @@ private fun RecorderScreen(
         AICallingPhase.HOME ->
           AICallingHomeScreen(
             recorderState = recorderState,
-            localRecordingCount = recordings.count(::isLocalRecordingAvailable),
+            localRecordingCount = originalRecordings.size,
             onStartNormalRecording = {
               val intent = Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_START)
               if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -1529,22 +1541,21 @@ private fun RecorderScreen(
     }
   } else {
     RecordingListScreen(
-      recordings = recordings,
+      originalCount = originalRecordings.size,
+      uploadedCount = uploadedRecordings.size,
       visibleRecordings = visibleRecordings,
       selected = selected,
       selectionMode = selectionMode,
       recordingFilter = recordingFilter,
-      filterMenuExpanded = filterMenuExpanded,
       onBack = { recordingsPage = false },
       onSelectionModeChange = { next ->
         selectionMode = next
         selected.clear()
       },
-      onFilterMenuExpandedChange = { filterMenuExpanded = it },
       onFilterChange = { option ->
         recordingFilter = option
         selected.clear()
-        filterMenuExpanded = false
+        selectionMode = false
       },
       onUploadSelected = {
         val localSelected = selected.filter { id -> recordings.find { it.id == id }?.let(::isLocalRecordingAvailable) == true }
@@ -1559,7 +1570,9 @@ private fun RecorderScreen(
         }
       },
       onDeleteSelected = { pendingDeleteIds = selected.toSet() },
-      onOpenRecording = { detailRecordingId = it.id },
+      onOpenRecording = {
+        if (recordingFilter == RecordingListFilter.UPLOADED) uploadedDetailId = it.id else detailRecordingId = it.id
+      },
       onDeleteRecording = { pendingDeleteIds = setOf(it.id) },
     )
   }
@@ -1640,6 +1653,44 @@ private fun RecorderScreen(
         loadAICallingItems()
       },
       onDismiss = { loginForAICalling = false },
+    )
+  }
+
+  uploadedDetailId?.let { id ->
+    recordings.firstOrNull { it.id == id }?.let { item ->
+      UploadedRecordingDialog(
+        item = item,
+        submitting = reprocessSubmitting,
+        onDismiss = { if (!reprocessSubmitting) uploadedDetailId = null },
+        onReprocess = { loadReprocessingTargets() },
+      )
+    }
+  }
+
+  if (reprocessPicker) {
+    AICallingPickerDialog(
+      items = reprocessItems,
+      loading = reprocessLoading || reprocessSubmitting,
+      error = reprocessError,
+      reprocessing = true,
+      onDismiss = { if (!reprocessSubmitting) reprocessPicker = false },
+      onRetry = { loadReprocessingTargets() },
+      onSelect = { target ->
+        val id = uploadedDetailId
+        if (id != null && !reprocessSubmitting) {
+          reprocessSubmitting = true
+          reprocessError = null
+          scope.launch {
+            runCatching { firebaseRepository.requestReprocessing(id, target) }
+              .onSuccess {
+                reprocessPicker = false
+                onMessage("重新处理请求已提交")
+              }
+              .onFailure { reprocessError = it.message ?: "重新处理请求失败" }
+            reprocessSubmitting = false
+          }
+        }
+      },
     )
   }
 
@@ -1829,6 +1880,7 @@ private fun AICallingContactsScreen(
 
 @Composable
 private fun AICallingPickerDialog(
+  reprocessing: Boolean = false,
   items: List<AICallingItem>,
   loading: Boolean,
   error: String?,
@@ -1837,16 +1889,16 @@ private fun AICallingPickerDialog(
   onSelect: (AICallingItem) -> Unit,
 ) {
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28) {
+    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28, opaque = reprocessing) {
       Column(
         Modifier.padding(22.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
       ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-          LocalizedText("呼叫对象", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+          LocalizedText(if (reprocessing) "处理对象" else "呼叫对象", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
           TextButton(onClick = onDismiss) { LocalizedText("取消", color = Neon.Success) }
         }
-        LocalizedText("请选择要记录并同步的部门工作流", color = Neon.Muted)
+        LocalizedText(if (reprocessing) "选择后将使用已有转写文本重新执行 Skills。" else "请选择要记录并同步的部门工作流", color = Neon.Muted)
         when {
           loading -> {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1863,7 +1915,7 @@ private fun AICallingPickerDialog(
           }
           items.isEmpty() -> {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-              LocalizedText("还没有呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
+              LocalizedText(if (reprocessing) "没有可用的 Skills 处理对象" else "还没有呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
               LocalizedText("请先在管理后台（CMS）的「服务列表」中创建并启用服务。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
             }
           }
@@ -2028,219 +2080,187 @@ private fun ProximityBlackoutEffect(active: Boolean, onBlackoutChange: (Boolean)
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun RecordingListScreen(
-  recordings: List<RecordingItem>,
+  originalCount: Int,
+  uploadedCount: Int,
   visibleRecordings: List<RecordingItem>,
   selected: SnapshotStateList<String>,
   selectionMode: Boolean,
   recordingFilter: RecordingListFilter,
-  filterMenuExpanded: Boolean,
   onBack: () -> Unit,
   onSelectionModeChange: (Boolean) -> Unit,
-  onFilterMenuExpandedChange: (Boolean) -> Unit,
   onFilterChange: (RecordingListFilter) -> Unit,
   onUploadSelected: () -> Unit,
   onDeleteSelected: () -> Unit,
   onOpenRecording: (RecordingItem) -> Unit,
   onDeleteRecording: (RecordingItem) -> Unit,
 ) {
-  val selectableIds =
-    visibleRecordings
-      .filter(::isLocalRecordingAvailable)
-      .map { it.id }
-  val allSelectableSelected = selectableIds.isNotEmpty() && selectableIds.all { it in selected }
-
-  Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+  val uploaded = recordingFilter == RecordingListFilter.UPLOADED
+  val selectableIds = visibleRecordings.map { it.id }
+  val allSelected = selectableIds.isNotEmpty() && selectableIds.all { it in selected }
+  Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
       LocalizedText("录音列表", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-      GlassButton(
-        if (selectionMode) "取消" else "返回",
-        icon = Icons.AutoMirrored.Rounded.ArrowBack,
-        onClick = {
-          if (selectionMode) {
-            onSelectionModeChange(false)
-          } else {
-            onBack()
-          }
-        },
+      GlassButton(if (selectionMode) "取消" else "返回", icon = Icons.AutoMirrored.Rounded.ArrowBack, onClick = {
+        if (selectionMode) onSelectionModeChange(false) else onBack()
+      })
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      RecordingListFilter.entries.forEach { tab ->
+        val active = recordingFilter == tab
+        Row(
+          Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp))
+            .background(if (active) NeonPrimaryBrush else Brush.horizontalGradient(listOf(Neon.PanelSoft, Neon.PanelSoft)))
+            .selectable(selected = active, role = Role.Tab, onClick = { onFilterChange(tab) })
+            .padding(horizontal = 10.dp),
+          horizontalArrangement = Arrangement.Center,
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          LocalizedText(tab.label, color = Neon.Text, style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false))
+          Spacer(Modifier.width(6.dp))
+          Text((if (tab == RecordingListFilter.ORIGINAL) originalCount else uploadedCount).toString(),
+            color = Neon.Text.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+        }
+      }
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+      LocalizedText(
+        if (uploaded) "合并上传显示一条，逐条上传分别显示。" else "仅显示原始录音，点击可查看详情。",
+        color = Neon.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
       )
+      if (!uploaded) TextButton(onClick = { onSelectionModeChange(!selectionMode) }) {
+        LocalizedText(if (selectionMode) "取消" else "选择", color = Neon.Success)
+      }
     }
-
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 24) {
-      Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Box(Modifier.weight(1f)) {
-          Row(
-            Modifier.clip(RoundedCornerShape(22.dp)).clickable { onFilterMenuExpandedChange(true) }.padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            LocalizedText("筛选：${recordingFilter.label}", color = Neon.Text)
-            Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = Neon.Purple, modifier = Modifier.size(18.dp))
-          }
-          DropdownMenu(expanded = filterMenuExpanded, onDismissRequest = { onFilterMenuExpandedChange(false) }) {
-            RecordingListFilter.entries.forEach { option ->
-              DropdownMenuItem(
-                text = { LocalizedText(option.label) },
-                onClick = { onFilterChange(option) },
-              )
-            }
-          }
-        }
-        TextButton(onClick = { onSelectionModeChange(!selectionMode) }) {
-          LocalizedText(if (selectionMode) "取消" else "选择", color = Neon.Success)
+    if (selectionMode && !uploaded) {
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LocalizedText("已选择 ${selected.size} 项", color = Neon.Text, fontWeight = FontWeight.Bold)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+          GlassButton(if (allSelected) "取消全选" else "全选", enabled = selectableIds.isNotEmpty(), onClick = {
+            selected.clear()
+            if (!allSelected) selected.addAll(selectableIds)
+          })
+          GlassButton("上传", icon = Icons.Rounded.Upload, enabled = selected.isNotEmpty(), onClick = onUploadSelected)
+          GlassButton("删除", icon = Icons.Rounded.Delete, enabled = selected.isNotEmpty(), onClick = onDeleteSelected)
         }
       }
     }
-
-    if (selectionMode) {
-      GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-          LocalizedText("已选择 ${selected.size} 项", color = Neon.Text, fontWeight = FontWeight.Bold)
-          FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            GlassButton(
-              if (allSelectableSelected) "取消全选" else "全选",
-              icon = Icons.Rounded.Check,
-              enabled = selectableIds.isNotEmpty(),
-              onClick = {
-                selected.clear()
-                if (!allSelectableSelected) {
-                  selected.addAll(selectableIds)
-                }
-              },
-            )
-            if (recordingFilter != RecordingListFilter.UPLOADED) {
-              GlassButton(
-                "上传",
-                icon = Icons.Rounded.Upload,
-                enabled = selected.isNotEmpty(),
-                onClick = onUploadSelected,
-              )
-            }
-            GlassButton("删除", icon = Icons.Rounded.Delete, enabled = selected.isNotEmpty(), onClick = onDeleteSelected)
-          }
-        }
-      }
-    }
-
     if (visibleRecordings.isEmpty()) {
-      GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-          LocalizedText("没有录音文件", color = Neon.Text, fontWeight = FontWeight.Bold)
-          LocalizedText("返回录音页开始录制，或切换筛选条件查看其他文件。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        }
+      Column(Modifier.padding(vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LocalizedText(if (uploaded) "还没有上传成功的文件" else "没有录音文件", color = Neon.Text, fontWeight = FontWeight.Bold)
+        LocalizedText(if (uploaded) "录音上传成功后会显示在这里。" else "返回录音页开始录制。", color = Neon.Muted)
       }
     }
-
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+    LazyColumn(modifier = Modifier.weight(1f)) {
       items(visibleRecordings, key = { it.id }) { item ->
         RecordingRow(
-          item = item,
-          selectionMode = selectionMode,
+          item = item, uploaded = uploaded, selectionMode = selectionMode,
           selected = item.id in selected,
-          selectable = isLocalRecordingAvailable(item),
-          onChecked = { checked -> if (checked) selected.add(item.id) else selected.remove(item.id) },
-          onOpen = { onOpenRecording(item) },
-          onDelete = { onDeleteRecording(item) },
+          onChecked = { checked -> if (checked && item.id !in selected) selected.add(item.id) else if (!checked) selected.remove(item.id) },
+          onOpen = { onOpenRecording(item) }, onDelete = { onDeleteRecording(item) },
         )
       }
     }
   }
 }
 
+private fun uploadMethodLabel(item: RecordingItem): String = when (item.uploadMode) {
+  UploadProcessMode.MERGED -> "合并上传"
+  UploadProcessMode.SEPARATE -> "逐条上传"
+  null -> "上传成功"
+}
+
 @Composable
 private fun RecordingRow(
   item: RecordingItem,
+  uploaded: Boolean,
   selectionMode: Boolean,
   selected: Boolean,
-  selectable: Boolean,
   onChecked: (Boolean) -> Unit,
   onOpen: () -> Unit,
   onDelete: () -> Unit,
 ) {
-  val playable = isLocalRecordingAvailable(item)
-  GlassCard(
-    Modifier
-      .fillMaxWidth()
-      .clickable {
-        if (selectionMode) {
-          if (selectable) onChecked(!selected)
-        } else {
-          onOpen()
-        }
-      },
-    cornerRadius = 18,
-  ) {
-    Row(
-      Modifier.fillMaxWidth().padding(14.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-      val circleBrush =
-        if (selected) NeonPrimaryBrush else Brush.radialGradient(listOf(Color(0x443F2E78), Color(0x22191D30)))
-      Box(
-        Modifier
-          .size(48.dp)
-          .clip(CircleShape)
-          .background(circleBrush),
-        contentAlignment = Alignment.Center,
-      ) {
-        when {
-          selectionMode -> {
-            if (selected) {
-              Icon(Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(26.dp))
-            } else {
-              Box(
-                Modifier
-                  .size(28.dp)
-                  .clip(CircleShape)
-                  .background(Color.Transparent)
-                  .border(BorderStroke(2.dp, if (selectable) Neon.Muted else Neon.Dim), CircleShape)
-              )
-            }
+  Column(Modifier.fillMaxWidth().clickable { if (selectionMode) onChecked(!selected) else onOpen() }) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      if (selectionMode) Checkbox(checked = selected, onCheckedChange = onChecked)
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(RecordingLists.displayName(item), color = Neon.Text, style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${formatRecordingDuration(item.durationMs)}  ·  ${formatRecordingSize(item.sizeBytes)}  ·  ${fileNameExtension(item.name).uppercase()}",
+          color = Neon.Muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (uploaded) {
+          LocalizedText(uploadMethodLabel(item), color = Neon.Success, style = MaterialTheme.typography.labelMedium)
+          item.aicallingTitle?.takeIf { it.isNotBlank() }?.let {
+            Text(it, color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
-          playable -> Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Color(0xFFC57AFF), modifier = Modifier.size(28.dp))
-          else -> Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Neon.Muted, modifier = Modifier.size(26.dp))
+        } else {
+          val state = when (item.uploadState) {
+            UploadState.PROCESSING -> "正在转换格式"
+            UploadState.UPLOADING -> "正在上传"
+            UploadState.ERROR -> "上传失败"
+            UploadState.UPLOADED -> "上传成功"
+            UploadState.LOCAL -> if (item.error != null) "上传失败" else "保存在本机"
+          }
+          LocalizedText(if (item.uploadState == UploadState.UPLOADING) "$state · ${item.uploadProgress}%" else state,
+            color = if (item.error != null) MaterialTheme.colorScheme.error else Neon.Muted, style = MaterialTheme.typography.labelMedium)
+          item.error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
       }
-
-      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(item.name, color = Neon.Text, fontWeight = FontWeight.Bold, maxLines = 1)
-        val progressText = if (item.uploadState == UploadState.UPLOADING) " · ${item.uploadProgress}%" else ""
-        val errorText = item.error?.let { " · $it" }.orEmpty()
-        val stateText = if (item.uploadState == UploadState.UPLOADED) "UPLOADED" else "LOCAL"
-        LocalizedText(
-          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · $stateText$progressText$errorText",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodyMedium,
-          maxLines = 1,
-        )
-        LocalizedText(if (playable) "点击查看详情" else "录音文件不存在", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+      if (!selectionMode && !uploaded) IconButton(onClick = onDelete) {
+        Icon(Icons.Rounded.Delete, contentDescription = "删除".localized(LocalContext.current), tint = Neon.Muted, modifier = Modifier.size(22.dp))
       }
+    }
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Neon.Muted.copy(alpha = 0.15f)))
+  }
+}
 
-      Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(
-          Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0x332B55FF))
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-        ) {
-          LocalizedText(if (item.kind == RecordingKind.MERGED) "合并" else "原声", color = Color(0xFF8BA2FF), style = MaterialTheme.typography.labelMedium)
+@Composable
+private fun UploadedRecordingDialog(
+  item: RecordingItem,
+  submitting: Boolean,
+  onDismiss: () -> Unit,
+  onReprocess: () -> Unit,
+) {
+  val uid = firebaseRepository.currentUid
+  val statusFlow = remember(item.id, uid) { firebaseRepository.observeUploadedProcessing(item.id) }
+  val status by statusFlow.collectAsState(initial = UploadedProcessingStatus())
+  val ready = status.canReprocess && status.state in listOf("success", "failed")
+  Dialog(onDismissRequest = onDismiss) {
+    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26, opaque = true) {
+      Column(Modifier.padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LocalizedText("上传详情", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(RecordingLists.displayName(item), color = Neon.Text, style = MaterialTheme.typography.titleMedium)
+        LocalizedText(uploadMethodLabel(item), color = Neon.Success)
+        Text("${formatRecordingDuration(item.durationMs)}  ·  ${formatRecordingSize(item.sizeBytes)}", color = Neon.Muted)
+        LocalizedText("上传时间", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
+        Text(formatRecordingCreatedAt(item.uploadedAt ?: item.createdAt), color = Neon.Text)
+        if (item.sourceRecordingIds.size > 1) {
+          LocalizedText("合并录音数量", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
+          Text(item.sourceRecordingIds.size.toString(), color = Neon.Text)
         }
-        Box(
-          Modifier
-            .size(44.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .clickable { onDelete() },
-          contentAlignment = Alignment.Center,
-        ) {
-          Icon(Icons.Rounded.Delete, contentDescription = "删除", tint = Neon.Muted, modifier = Modifier.size(26.dp))
+        LocalizedText("处理对象", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
+        Text(status.targetTitle.ifBlank { item.aicallingTitle.orEmpty() }.ifBlank { "—" }, color = Neon.Text)
+        val stateText = when {
+          status.loading -> "正在读取处理状态"
+          status.error != null && status.state.isBlank() -> "处理状态读取失败"
+          status.requestStatus == "queued" -> "等待重新处理"
+          status.requestStatus == "processing" -> "正在重新处理"
+          status.requestStatus == "success" -> "重新处理完成"
+          status.requestStatus == "failed" -> "重新处理失败"
+          status.state == "success" -> "处理完成"
+          status.state == "failed" -> "处理失败"
+          else -> "等待服务器处理"
         }
+        LocalizedText(stateText, color = Neon.Text, fontWeight = FontWeight.SemiBold)
+        if (status.busy || status.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Neon.Purple)
+        status.error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error) }
+        if (!status.loading && !status.hasTranscript && status.error == null) {
+          LocalizedText("转写文本尚未就绪，暂时无法重新处理", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+        }
+        LocalizedText("使用已有转写文本，不重新上传音频或进行语音识别。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+        GradientPrimaryButton("重新选择处理对象", enabled = ready && !submitting, onClick = onReprocess)
+        GlassButton("关闭", modifier = Modifier.fillMaxWidth(), enabled = !submitting, onClick = onDismiss)
       }
     }
   }
@@ -2348,7 +2368,7 @@ private fun RecordingDetailDialog(
           LocalizedText("录音详情", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
           GlassButton("Share", icon = Icons.Rounded.Share, enabled = playable, onClick = { shareRecording() })
         }
-        Text(item.name, color = Neon.Muted, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(RecordingLists.displayName(item), color = Neon.Muted, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
           OutlinedTextField(
             value = editableName,
@@ -2365,7 +2385,7 @@ private fun RecordingDetailDialog(
         )
 
         LocalizedText(
-          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · ${if (item.kind == RecordingKind.MERGED) "合并文件" else "原文件"}",
+          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · ${fileNameExtension(item.name).uppercase()}",
           color = Neon.Muted,
         )
         LocalizedText(

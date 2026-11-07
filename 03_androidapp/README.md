@@ -9,7 +9,7 @@ ideavox是原生 Android Kotlin + Jetpack Compose 应用。当前工程包名为
 - 笔记实时本地草稿缓存，保存时写入 `users/{uid}/notes/{noteId}`，`updatedAt` 使用 Firestore 服务端时间并兼容旧本地毫秒时间同步。
 - 前台服务录音，支持后台、锁屏、页面切换持续录音。
 - 录音开始、暂停、继续、结束；使用前台服务 + `AudioRecord` 写入单个 WAV 文件，暂停时不写入 PCM，继续后仍保持一个逻辑文件。
-- 录音列表、原文件/合并文件标签、全部/原文件/合并文件筛选、播放、暂停、1.0x/1.5x/2.0x 播放速度。
+- 录音列表拆为「录音」和「上传成功」：原始录音与上传产物分开，日期时间单行显示，列表移除左侧播放圆钮，播放/暂停和倍速保留在录音详情。合并上传一条、逐条上传各一条；支持对已有转写重新选择 Skills 处理对象。
 - 可作为 Android 系统分享面板的音频接收目标；其他录音 App 分享来的音频会复制到应用私有目录，并加入本地录音列表。
 - 可接收其他 App 通过系统分享面板发送的文字；内容会立即写入本地笔记草稿和持久化待同步队列，并在登录、启动或网络恢复后以 `YYYY-MM-DD HH:mm` 标题幂等同步到 Firestore 已保存笔记。
 - 上传外部 WAV 前会读取真实的 RIFF/WAV 区块、采样率与声道，并标准化为 44.1kHz 单声道 PCM，兼容 16kHz 录音和带 LIST 等元数据区块的文件。
@@ -28,7 +28,7 @@ ideavox是原生 Android Kotlin + Jetpack Compose 应用。当前工程包名为
 - 合并上传时可选择中文、日语、英语、韩语，所选语言会写入 `record.language` 和用户私有录音元数据。
 - 手机端不再读取 `users/{uid}/recordings`，也不再列出或下载“仅云端”录音；上传时仍会写入该集合，供后端 `monitor.js` 处理。
 - 「已保存笔记」页面按 **5 条/页** 分页读取 `users/{uid}/notes`：打开页面读第一页，点“加载更多”再读下一页；登录/启动不再自动全量同步笔记。
-- 「已上传」筛选现在只看本机录音的 `uploadState == UPLOADED`，不再依赖云端录音列表。
+- 「上传成功」列表使用本地上传记录，不全量读取云端列表，也不依赖本地音频是否还存在；打开详情时只监听对应服务器记录，显示重新处理状态。
 - 本地缓存按登录用户隔离；切换账号或退出时会清除笔记、草稿，只保留设备本地录音文件。
 - Firebase 规则文件位于 `firestore.rules` 和 `storage.rules`，`firebase.json` 已指向这两个文件；策略为本人读写私有数据，录音上传和 `record` 队列写入需要 VIP。
 - 「呼叫对象」的数据源已从 `/users/{uid}/aicalling` 改为 CMS 的 `/allalservice`：按 `userUid == uid` 查询，只列出**使用中且未删除**的服务，按 `sort` 排序；标题/说明按 App 语言取 `name<Lang>` / `description<Lang>`（缺失时按语言顺序回退，再回退到 `applicationName`）。列表会标注服务类型（Google Drive / DeepSeek Skill）。
@@ -106,3 +106,7 @@ adb shell am instrument -w -e class com.vibecodingjapan.ideavox.BluetoothRecordi
 10 月 21 日蓝牙设备优先级：录音设备现在同时保存 ID 和产品名，并按「固定 ID → 固定名称 → 当前媒体路由/第一个蓝牙」的顺序解析。只要 HUAWEI Eyewear 2 仍在连接列表中，后连接的其他蓝牙耳机不会替换它；Eyewear 断开的期间才回退，重新连接后自动恢复优先。启动录音时不再把临时媒体路由设备写回设置。设置页会显示固定的录音设备名，并提示“已固定的蓝牙录音设备只要仍连接，就不会被后连接的其他蓝牙耳机替换”。详见 [蓝牙录音设备优先固定](docs/bluetooth-device-priority-2026-10-21.md)。
 
 10 月 25 日语音精简：移除“准备”“现在可以后滑结束”“已开启上传”“自动上传已完成”“已取消上传”语音；保留“开始录音”和“录音已结束，5秒内再后滑一次上传”。上传成功改为本地应用通知“已上传”（`luyin_upload_result` 渠道，默认重要性，正文为文件名），不再语音播报。
+
+## 录音列表与已有转写重新处理（2026-11-07）
+
+界面规划、请求协议、兼容边界、验证与服务器发布步骤见 [功能说明](docs/recording-lists-reprocessing-2026-11-07.md)。需要同步发布 Android APK、`monitor.js` 与 `monitor-transcripts.js` 并重启服务器 monitor；旧版服务器不会消费新的重新处理指令。

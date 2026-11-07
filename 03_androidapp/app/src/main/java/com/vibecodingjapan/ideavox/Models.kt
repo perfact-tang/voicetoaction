@@ -42,6 +42,10 @@ data class RecordingItem(
   val serviceId: String? = null,
   /** CMS `allalservice.type`（仅通过呼叫对象发起的录音有值）。 */
   val serviceType: String? = null,
+  /** 上传产物关联的原始录音，避免把转码文件再次列为原始录音。 */
+  val sourceRecordingIds: List<String> = emptyList(),
+  val uploadMode: UploadProcessMode? = null,
+  val uploadedAt: Long? = null,
 )
 
 @Serializable
@@ -168,3 +172,16 @@ enum class BluetoothRecordingControlMode(val label: String) {
 val PlaybackSpeeds = listOf(1.0f, 1.5f, 2.0f)
 val ReaderSpeeds = listOf(0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 2.5f)
 val UploadSpeeds = listOf(1.0f, 1.5f, 1.75f, 2.0f)
+
+/** 服务端处理状态与“音频上传成功”独立，详情页按需监听单个文档。 */
+data class UploadedProcessingStatus(
+  val loading: Boolean = true,
+  val state: String = "",
+  val hasTranscript: Boolean = false,
+  val requestStatus: String = "",
+  val targetTitle: String = "",
+  val error: String? = null,
+) {
+  val busy: Boolean get() = requestStatus in listOf("queued", "processing")
+  val canReprocess: Boolean get() = hasTranscript && !busy
+}

@@ -10,7 +10,7 @@
     "setup:faster-whisper": "node scripts/setup-python-backend.js requirements-faster-whisper.txt",
     "setup:sensevoice": "node scripts/setup-python-backend.js requirements-sensevoice.txt && node scripts/download-sensevoice-model.js",
     "setup:stt": "npm run setup:faster-whisper && npm run setup:sensevoice",
-    "test": "node scripts/stt-engine.test.mjs && node scripts/stt-sensevoice.test.mjs && node scripts/skill-resume.test.mjs"
+    "test": "node scripts/stt-engine.test.mjs && node scripts/stt-sensevoice.test.mjs && node scripts/skill-resume.test.mjs && node --test scripts/reprocessing.test.mjs"
   },
   "engines": {
     "node": ">=20"

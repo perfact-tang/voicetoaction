@@ -205,6 +205,8 @@ class UploadProcessingService : Service() {
         durationMs = AudioProcessor.durationMs(items, merged, speed),
         sizeBytes = merged.length(),
         kind = RecordingKind.MERGED,
+        sourceRecordingIds = items.map { it.id },
+        uploadMode = UploadProcessMode.MERGED,
         uploadState = UploadState.PROCESSING,
         aicallingId = items.firstOrNull()?.aicallingId,
         aicallingTitle = items.firstOrNull()?.aicallingTitle,
@@ -262,7 +264,9 @@ class UploadProcessingService : Service() {
           createdAt = System.currentTimeMillis(),
           durationMs = AudioProcessor.durationMs(listOf(item), processed, normalizedSpeed),
           sizeBytes = processed.length(),
-          kind = item.kind,
+          kind = RecordingKind.MERGED,
+          sourceRecordingIds = listOf(item.id),
+          uploadMode = UploadProcessMode.SEPARATE,
           uploadState = UploadState.PROCESSING,
           aicallingId = item.aicallingId,
           aicallingTitle = item.aicallingTitle,
@@ -434,6 +438,7 @@ class UploadProcessingService : Service() {
   }
 }
 
+@kotlinx.serialization.Serializable
 enum class UploadProcessMode {
   MERGED,
   SEPARATE,

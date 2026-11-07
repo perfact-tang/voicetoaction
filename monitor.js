@@ -30,6 +30,7 @@ import {
   runAiskillsrunner,
   runSkillWithResume
 } from "./monitor-skills.js";
+import { prepareTranscript, processingJobId, reprocessingRecord, duplicatesAudio } from "./monitor-transcripts.js";
 import { sendJobNotification } from "./monitor-notify.js";
 import { describeFallback, normalizeSttEngine, resolveSttEngine } from "./scripts/stt-engines.js";
 
@@ -80,7 +81,7 @@ const ACTIVE_STAGES = [
   "installing_skill",
   "running_skill"
 ];
-const RUNNING_STAGES = ["reading_text", "transcribing", "creating_doc", "installing_skill", "running_skill"];
+const RUNNING_STAGES = ACTIVE_STAGES.filter((stage) => stage !== "queued");
 /**
  * 兜底对账周期（毫秒）。Firestore 的 onSnapshot 是一条长连接，实测会静默卡死：
  * 2026-10-24 开机后约 18 分钟没有任何回调、也没有触发 error 回调，这期间 App 上传的
@@ -391,7 +392,9 @@ function recordForDocument(data, path, documentId) {
     // CMS 服务身份：serviceType=deepseek_harness 时走 Skills 流程，否则走 Google Drive。
     serviceId: data.serviceId || null,
     serviceType: data.serviceType || null,
-    userId: deriveUserId(path, data)
+    userId: deriveUserId(path, data),
+    sttTextPath: data.sttTextPath || "",
+    sttTextUrl: data.sttTextUrl || ""
   };
 }
 
@@ -400,9 +403,9 @@ function isTerminalState(value) {
   return value === "success" || value === "failed" || value === "duplicate";
 }
 
-/** 入队记录对应的任务 id（同一个 Firestore 文档只对应一个任务）。 */
+/** 首次处理按文档去重；每个显式重新处理指令有独立任务 ID。 */
 function jobIdFor(record) {
-  return `${state.config.projectId}::${String(record.documentPath || "").replace(/\//g, "_")}`;
+  return processingJobId(state.config.projectId, record);
 }
 
 function startListener() {
@@ -423,6 +426,8 @@ function startListener() {
             if (initialized) log(`跳过（非监视用户 ${record.userId || "(空)"}）：${path}`);
             continue;
           }
+          const requested = reprocessingRecord(data, record);
+          if (requested) enqueueRecord(requested);
           if (isTerminalState(data.state)) {
             if (initialized) log(`跳过（已处理 ${data.state}）：${path}`);
             continue;
@@ -474,6 +479,18 @@ async function reconcilePendingRecords() {
       const source = userId
         ? state.db.collection("users").doc(userId).collection("recordings")
         : state.db.collectionGroup("recordings");
+      try {
+        const requests = await source.where("reprocessRequest.status", "in", ["queued", "processing"]).limit(RECONCILE_LIMIT).get();
+        for (const doc of requests.docs) {
+          const data = doc.data() || {};
+          const record = recordForDocument(data, doc.ref.path, doc.id);
+          if (state.config.monitoredUsers.length && !state.config.monitoredUsers.includes(record.userId)) continue;
+          const requested = reprocessingRecord(data, record);
+          if (requested) enqueueRecord(requested);
+        }
+      } catch (error) {
+        log(`重新处理指令对账失败：${error.message}`);
+      }
       let snapshot;
       try {
         snapshot = await source
@@ -555,12 +572,7 @@ function enqueueRecord(record) {
   const id = jobIdFor(record);
   let shouldSpawn = false;
 
-  const duplicate = state.jobs.find(
-    (job) =>
-      job.recordFile === record.recordFile &&
-      job.id !== id &&
-      (ACTIVE_STAGES.includes(job.stage) || job.stage === "success")
-  );
+  const duplicate = state.jobs.find((job) => duplicatesAudio(job, record, id, ACTIVE_STAGES));
   if (duplicate) {
     log(`跳过重复录音：${record.recordFile} 已在处理/已完成。`);
     // 这条文档不会再有任务，必须离开 uploaded 状态，否则兜底对账会每分钟重读。
@@ -568,7 +580,14 @@ function enqueueRecord(record) {
   } else {
     const existing = state.jobs.find((job) => job.id === id);
     if (existing) {
-      if (existing.stage === "failed") {
+      if (record.reprocessRequestId) {
+        // A command has one execution even if snapshots/reconciliation repeat.
+        if (isTerminalState(existing.stage)) {
+          void finishReprocessing(existing, existing.stage, existing.resultFields || {}, existing.errorMessage || "")
+            .catch((error) => log(`恢复重新处理结果失败：${error.message}`));
+        }
+        if (existing.stage === "queued") shouldSpawn = true;
+      } else if (existing.stage === "failed") {
         Object.assign(existing, {
           documentPath: record.documentPath,
           documentId: record.documentId,
@@ -593,6 +612,9 @@ function enqueueRecord(record) {
     } else {
       state.jobs.push({
         id,
+        reprocessRequestId: record.reprocessRequestId || null,
+        sttTextPath: record.sttTextPath || "",
+        sttTextUrl: record.sttTextUrl || "",
         documentPath: record.documentPath,
         documentId: record.documentId,
         recordFile: record.recordFile,
@@ -741,6 +763,11 @@ async function downloadFromStorage(recordFile, outputPath) {
 }
 
 async function updateFirestoreSuccess(job, fields = {}) {
+  if (job.reprocessRequestId) {
+    updateJob(job.id, (entry) => { entry.resultFields = fields; });
+    await finishReprocessing(job, "success", fields);
+    return;
+  }
   const payload = {
     state: "success",
     errorMessage: "",
@@ -965,13 +992,6 @@ function transcriptPath(job) {
   return join(dir, `${sanitizeFileStem(job.documentId, "record")}.txt`);
 }
 
-/** STT 结果按用户要求留在本机，不依赖 Google Drive。 */
-function writeTranscriptLocally(job, transcript) {
-  const path = transcriptPath(job);
-  writeFileSync(path, String(transcript || ""), "utf8");
-  return path;
-}
-
 /**
  * 把转录文本备份到 Firebase Storage，返回 { gsUrl, httpsUrl, object, bucket }。
  * 桶名直接取自录音的 gs:// 地址，避免 admin.storage().bucket() 默认桶
@@ -1005,8 +1025,77 @@ async function loadSkillService(serviceId) {
   };
 }
 
+/** Only update the matching command; keep the original upload and results intact. */
+async function finishReprocessing(job, status, fields = {}, errorMessage = "") {
+  if (!job.reprocessRequestId) return;
+  const ref = state.db.doc(job.documentPath);
+  await state.db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (snap.data()?.reprocessRequest?.id !== job.reprocessRequestId) return;
+    transaction.update(ref, {
+      "reprocessRequest.status": status,
+      "reprocessRequest.errorMessage": errorMessage,
+      "reprocessRequest.result": fields,
+      "reprocessRequest.finishedAt": admin.firestore.FieldValue.serverTimestamp()
+    });
+  });
+}
+
+/** All newly transcribed inputs (Skills and Drive) save reusable text before processing. */
+async function prepareJobTranscript(job) {
+  const textPath = transcriptPath(job);
+  if (job.reprocessRequestId && job.sttTextPath) {
+    const saved = parseGsUrl(job.sttTextPath);
+    const source = parseGsUrl(job.recordFile);
+    const expected = `stt/${sanitizeFileStem(job.userId, "user")}/${sanitizeFileStem(job.documentId, "record")}.txt`;
+    if (saved.bucket !== source.bucket || saved.object !== expected) throw new Error("转写文本不属于此上传记录");
+  }
+  return prepareTranscript({
+    job, textPath, audioPath: jobWorkPath(job),
+    download: downloadFromStorage,
+    extractText: extractJobText,
+    backup: uploadTranscriptToStorage,
+    persist: (fields) => state.db.doc(job.documentPath).set(fields, { merge: true }),
+    onStage: (stage, progress) => updateJob(job.id, (entry) => { entry.stage = stage; entry.progress = progress; }),
+    onBackupError: (error) => log(`转写备份失败（保留本地文本）：${error.message}`)
+  });
+}
+
+/** Verify current command and service on the server, independent of the Android UI. */
+async function beginReprocessing(job) {
+  const segments = job.documentPath.split("/");
+  if (segments.length !== 4 || segments[0] !== "users" || segments[1] !== job.userId || segments[2] !== "recordings") {
+    throw new Error("重新处理记录的用户路径无效");
+  }
+  const ref = state.db.doc(job.documentPath);
+  return state.db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    const data = snap.data() || {};
+    const request = data.reprocessRequest;
+    if (request?.id !== job.reprocessRequestId || !["queued", "processing"].includes(request.status)) return false;
+    if (request.serviceId !== job.serviceId) throw new Error("处理对象已变更，请重新提交请求");
+    if (!["success", "failed"].includes(data.state)) throw new Error("首次处理尚未结束");
+    const service = await transaction.get(state.db.collection("allalservice").doc(job.serviceId));
+    const target = service.data() || {};
+    if (target.userUid !== job.userId || target.status !== "active" || target.isDeleted || target.type !== SKILL_SERVICE_TYPE) {
+      throw new Error("此 Skills 处理对象不可用或不属于当前用户");
+    }
+    const account = await transaction.get(state.db.collection("userinfo").doc(job.userId));
+    if (account.data()?.usertype !== "vip") throw new Error("当前账号未开通处理权限");
+    // Read server source metadata rather than trusting fields copied into the queue.
+    job.sttTextPath = data.sttTextPath || "";
+    job.sttTextUrl = data.sttTextUrl || "";
+    transaction.update(ref, { "reprocessRequest.status": "processing", "reprocessRequest.errorMessage": "" });
+    return true;
+  });
+}
+
 async function updateFirestoreFailure(job, errorMessage) {
   try {
+    if (job.reprocessRequestId) {
+      await finishReprocessing(job, "failed", {}, errorMessage);
+      return;
+    }
     await state.db.doc(job.documentPath).set(
       {
         state: "failed",
@@ -1021,6 +1110,10 @@ async function updateFirestoreFailure(job, errorMessage) {
 }
 
 async function processJob(job) {
+  if (job.reprocessRequestId && !(await beginReprocessing(job))) {
+    updateJob(job.id, (entry) => { entry.stage = "success"; entry.progress = 100; });
+    return null;
+  }
   // Skills（DeepSeek Harness）流程完全不走 Google Drive / OAuth
   if (isSkillJob(job)) return processSkillJob(job);
 
@@ -1035,28 +1128,11 @@ async function processJob(job) {
     return { wait: true, message: "GOOGLE_DRIVE_FOLDER_ID 未设置（需在 .env 配置后重启）。" };
   }
 
-  const localPath = jobWorkPath(job);
-  updateJob(job.id, (entry) => {
-    entry.stage = "downloading";
-    entry.progress = 15;
-  });
-  try {
-    await downloadFromStorage(job.recordFile, localPath);
-    log(`已下载：${job.recordFile}`);
-  } catch (error) {
-    return `Download failed: ${error.message}`;
-  }
-
-  const markdown = isMarkdownJob(job);
-  updateJob(job.id, (entry) => {
-    entry.stage = markdown ? "reading_text" : "transcribing";
-    entry.progress = 45;
-  });
   let transcript;
   try {
-    transcript = await extractJobText(job, localPath);
+    ({ text: transcript } = await prepareJobTranscript(job));
   } catch (error) {
-    return `${markdown ? "Read markdown" : "Transcription"} failed: ${error.message}`;
+    return `准备转写文本失败：${error.message}`;
   }
 
   updateJob(job.id, (entry) => {
@@ -1120,7 +1196,6 @@ async function processJob(job) {
     return `Firestore update failed: ${error.message}`;
   }
 
-  rmSync(localPath, { force: true });
   updateJob(job.id, (entry) => {
     entry.stage = "success";
     entry.progress = 100;
@@ -1140,46 +1215,11 @@ async function processSkillJob(job) {
     return "Skills 流程缺少 serviceId：App 上传时需要写入 CMS 服务 ID（serviceId）。";
   }
 
-  const localPath = jobWorkPath(job);
-  updateJob(job.id, (entry) => {
-    entry.stage = "downloading";
-    entry.progress = 10;
-  });
+  let textPath, stored;
   try {
-    await downloadFromStorage(job.recordFile, localPath);
-    log(`已下载：${job.recordFile}`);
+    ({ textPath, stored } = await prepareJobTranscript(job));
   } catch (error) {
-    return `Download failed: ${error.message}`;
-  }
-
-  const markdown = isMarkdownJob(job);
-  updateJob(job.id, (entry) => {
-    entry.stage = markdown ? "reading_text" : "transcribing";
-    entry.progress = 30;
-  });
-  let transcript;
-  try {
-    transcript = await extractJobText(job, localPath);
-  } catch (error) {
-    return `${markdown ? "Read markdown" : "Transcription"} failed: ${error.message}`;
-  }
-  // 音频用完即删；STT 文本按 Skills 流程要求留在本机
-  rmSync(localPath, { force: true });
-
-  let textPath;
-  try {
-    textPath = writeTranscriptLocally(job, transcript);
-    log(`STT 结果已保存到本机：${textPath}`);
-  } catch (error) {
-    return `写入本地转录文件失败：${error.message}`;
-  }
-
-  let stored = null;
-  try {
-    stored = await uploadTranscriptToStorage(job, transcript);
-    log(`转录文件已备份到 Storage：${stored.gsUrl}`);
-  } catch (error) {
-    log(`转录文件上传 Storage 失败（本地文件仍保留）：${error.message}`);
+    return `准备转写文本失败：${error.message}`;
   }
 
   let service;
@@ -1395,8 +1435,7 @@ async function processSkillJob(job) {
       skillVersion: service.version,
       skillOutput: output.slice(0, MAX_SKILL_OUTPUT_CHARS),
       ...(uploadCheck.verified ? { skillUploadVerified: true, blogDocId: uploadCheck.docId } : {}),
-      sttTextPath: stored?.gsUrl || "",
-      sttTextUrl: stored?.httpsUrl || "",
+      ...(stored?.gsUrl ? { sttTextPath: stored.gsUrl, sttTextUrl: stored.httpsUrl || "" } : {}),
       sttTextLocalPath: textPath,
       ...(noteDocId ? { noteDocId } : {})
     });

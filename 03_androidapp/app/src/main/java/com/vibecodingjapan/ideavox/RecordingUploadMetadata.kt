@@ -20,6 +20,9 @@ object RecordingUploadMetadata {
       "durationMs" to recording.durationMs,
       "sizeBytes" to recording.sizeBytes,
       "kind" to recording.kind.name,
+      "sourceRecordingIds" to recording.sourceRecordingIds,
+      "uploadMode" to recording.uploadMode?.name,
+      "uploadedAt" to System.currentTimeMillis(),
       "uploadState" to UploadState.UPLOADED.name,
       // monitor.js 的后端处理状态（瞬时）：上传完成后为 uploaded，处理结束由
       // monitor 改写为 success/failed。不要把它和客户端 UI 状态 uploadState 混用：

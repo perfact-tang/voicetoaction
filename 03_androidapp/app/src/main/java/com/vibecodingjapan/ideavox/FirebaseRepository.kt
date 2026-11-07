@@ -11,11 +11,15 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.UploadTask
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -215,8 +219,73 @@ class FirebaseRepository(private val localStore: LocalStore) {
       .set(RecordingUploadMetadata.firestoreMap(recording, storageUri, language), SetOptions.merge())
       .await()
     localStore.updateRecording(recording.id) {
-      it.copy(uploadState = UploadState.UPLOADED, uploadProgress = 100, storageUri = storageUri, error = null)
+      it.copy(uploadState = UploadState.UPLOADED, uploadProgress = 100, storageUri = storageUri, uploadedAt = System.currentTimeMillis(), error = null)
     }
+  }
+
+  /** 只监听当前打开的上传详情，不全量扫描云端录音。 */
+  fun observeUploadedProcessing(recordingId: String): Flow<UploadedProcessingStatus> = callbackFlow {
+    val uid = currentUid
+    if (uid == null) {
+      trySend(UploadedProcessingStatus(loading = false, error = "请先登录"))
+      close()
+      return@callbackFlow
+    }
+    val registration = db.collection("users").document(uid).collection("recordings").document(recordingId)
+      .addSnapshotListener { doc, error ->
+        if (error != null) {
+          trySend(UploadedProcessingStatus(loading = false, error = error.message ?: "处理状态读取失败"))
+        } else if (doc == null || !doc.exists()) {
+          trySend(UploadedProcessingStatus(loading = false, error = "找不到服务器上的上传记录"))
+        } else {
+          trySend(UploadedProcessingStatus(
+            loading = false,
+            state = doc.getString("state").orEmpty(),
+            hasTranscript = !doc.getString("sttTextPath").isNullOrBlank() || !doc.getString("sttTextLocalPath").isNullOrBlank(),
+            requestStatus = doc.getString("reprocessRequest.status").orEmpty(),
+            targetTitle = doc.getString("reprocessRequest.targetTitle").orEmpty(),
+            error = if (!doc.getString("reprocessRequest.status").isNullOrBlank()) {
+              doc.getString("reprocessRequest.errorMessage")?.takeIf { it.isNotBlank() }
+            } else doc.getString("errorMessage")?.takeIf { it.isNotBlank() },
+          ))
+        }
+      }
+    awaitClose { registration.remove() }
+  }
+
+  /** 仅写入重新处理指令；不调用 Storage 上传或音频转换。事务避免重复点击覆盖在途任务。 */
+  suspend fun requestReprocessing(recordingId: String, target: AICallingItem) {
+    val uid = requireNotNull(currentUid) { "请先登录" }
+    require(target.serviceId.isNotBlank()) { "请选择处理对象" }
+    val ref = db.collection("users").document(uid).collection("recordings").document(recordingId)
+    val serviceRef = db.collection(ALLALSERVICE_COLLECTION).document(target.serviceId)
+    val vipRef = db.collection("userinfo").document(uid)
+    val requestId = UUID.randomUUID().toString()
+    db.runTransaction { transaction ->
+      val doc = transaction.get(ref)
+      val service = transaction.get(serviceRef)
+      val account = transaction.get(vipRef)
+      check(account.getString("usertype") == "vip") { "当前账号未开通录音上传权限" }
+      check(doc.exists()) { "找不到服务器上的上传记录" }
+      check(doc.getString("uploadState") == UploadState.UPLOADED.name) { "请等待音频上传完成" }
+      check(!doc.getString("sttTextPath").isNullOrBlank() || !doc.getString("sttTextLocalPath").isNullOrBlank()) {
+        "转写文本尚未就绪，暂时无法重新处理"
+      }
+      check(doc.getString("state") in listOf("success", "failed")) { "首次处理尚未结束，请稍后再试" }
+      check(doc.getString("reprocessRequest.status") !in listOf("queued", "processing")) { "已有重新处理任务正在进行" }
+      check(service.getString("userUid") == uid && service.getString("status") == "active" && service.getBoolean("isDeleted") != true) {
+        "此处理对象已停用，请重新选择"
+      }
+      check(service.getString("type") == ServiceTypes.DEEPSEEK_HARNESS) { "请选择支持 Skills 的处理对象" }
+      transaction.update(ref, "reprocessRequest", mapOf(
+        "id" to requestId,
+        "status" to "queued",
+        "serviceId" to target.serviceId,
+        "targetTitle" to target.title,
+        "requestedAt" to FieldValue.serverTimestamp(),
+      ))
+      null
+    }.await()
   }
 
   private suspend fun awaitStorageUpload(

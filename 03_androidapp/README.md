@@ -1,6 +1,6 @@
-# ideavox Android
+# VoiceToAction Android
 
-ideavox是原生 Android Kotlin + Jetpack Compose 应用。当前工程包名为 `com.vibecodingjapan.ideavox`，与 `app/google-services.json` 中的 Firebase Android App 配置一致。
+VoiceToAction 是原生 Android Kotlin + Jetpack Compose 应用。当前工程包名为 `com.vibecodingjapan.ideavox`，与 `app/google-services.json` 中的 Firebase Android App 配置一致。
 
 ## 已实现
 
@@ -110,3 +110,7 @@ adb shell am instrument -w -e class com.vibecodingjapan.ideavox.BluetoothRecordi
 ## 录音列表与已有转写重新处理（2026-11-07）
 
 界面规划、请求协议、兼容边界、验证与服务器发布步骤见 [功能说明](docs/recording-lists-reprocessing-2026-11-07.md)。需要同步发布 Android APK、`monitor.js` 与 `monitor-transcripts.js` 并重启服务器 monitor；旧版服务器不会消费新的重新处理指令。
+
+## 界面重设计（2026-11-07）
+
+按照用户参考图重做暖紫光晕、玻璃面板、声音波形主卡与悬浮导航；笔记列表优先，设置首屏直接操作设备与播放键监视。详见 [设计与验证说明](docs/ui-redesign-2026-11-07.md)。

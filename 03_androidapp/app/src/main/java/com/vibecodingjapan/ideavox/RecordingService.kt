@@ -316,6 +316,7 @@ class RecordingService : Service() {
         status = RecordingStatus.RECORDING,
         activeFileName = name,
         activeRecordingId = currentId,
+        activeInputLabel = runCatching { nextRecorder.routedDevice?.let(AudioDeviceSelection::label) }.getOrNull(),
       )
     recordingJob = serviceScope.launch {
       runCatching { writePcmLoop(nextRecorder, file, minBuffer) }.onFailure { error ->
@@ -335,9 +336,16 @@ class RecordingService : Service() {
         BluetoothRecordingTelecom.start(this, recordingId = currentId, requiresSco = selectedInput?.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
       }
     }
+    val routeRecordingId = currentId
     routingListener = AudioRouting.OnRoutingChangedListener { audio ->
       if (commands.isShutdown) return@OnRoutingChangedListener
       val routed = audio.routedDevice
+      val routeLabel = runCatching { routed?.let(AudioDeviceSelection::label) }.getOrNull()
+      RecordingRuntime.state.update { current ->
+        if (current.activeRecordingId == routeRecordingId && current.status != RecordingStatus.IDLE) {
+          current.copy(activeInputLabel = routeLabel)
+        } else current
+      }
       android.util.Log.i(TAG, "capture route changed id=${routed?.id} type=${routed?.type} bluetoothExpected=$selectedBluetoothInput")
       if (selectedBluetoothInput && routed != null && !AudioDeviceSelection.isBluetoothInput(routed)) {
         commands.execute {
@@ -533,7 +541,7 @@ class RecordingService : Service() {
       PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     return NotificationCompat.Builder(this, RECORDING_CHANNEL_ID)
       .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-      .setContentTitle("ideavox")
+      .setContentTitle(getString(R.string.app_name))
       .setContentText(text.localized(this))
       .setContentIntent(pending)
       .setOngoing(true)

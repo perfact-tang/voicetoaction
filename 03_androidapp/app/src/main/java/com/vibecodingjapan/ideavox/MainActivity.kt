@@ -8,6 +8,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
@@ -16,6 +19,8 @@ import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -26,6 +31,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -33,6 +39,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -40,13 +47,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
@@ -54,26 +64,34 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.CloudUpload
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Upload
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowOutward
+import androidx.compose.material.icons.outlined.CallEnd
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Headphones
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CloudUpload
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Save
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,18 +104,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -105,9 +127,9 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -118,11 +140,13 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -160,9 +184,12 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    enableEdgeToEdge()
+    enableEdgeToEdge(
+      statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+      navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+    )
     setContent {
-      LuYinTheme {
+      VoiceToActionTheme {
         LuYinApp(
           sharedContentEvent = sharedContentEvent,
           resumeSignal = resumeSignal,
@@ -326,7 +353,7 @@ fun LuYinApp(
   val pushPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
       if (!granted) {
-        message = "未授予通知权限：后台处理完成后无法在手机上提醒。请到「系统设置 → 应用 → ideavox → 通知」里打开。"
+        message = "未授予通知权限：后台处理完成后无法在手机上提醒。请到「系统设置 → 应用 → VoiceToAction → 通知」里打开。"
       }
     }
   LaunchedEffect(authState.uid) {
@@ -360,65 +387,69 @@ fun LuYinApp(
     monitoringEnabled = snapshot.bluetoothHeadsetControlMonitoringEnabled,
   )
 
-  NeonSurface {
-    Scaffold(
-      modifier = Modifier.safeDrawingPadding(),
-      containerColor = Color.Transparent,
-      topBar = {
-        if (uploadTask.active) {
-          UploadProcessingBanner(uploadTask, onRestore = { UploadRuntime.restore() })
-        }
-      },
-      bottomBar = { NeonBottomBar(selected = tab, onSelect = { tab = it }) },
-    ) { padding ->
-      Column(Modifier.fillMaxSize().padding(padding)) {
-        if (recorderState.status != RecordingStatus.IDLE) {
-          Box(
-            Modifier
-              .fillMaxWidth()
-              .background(Brush.horizontalGradient(listOf(Color(0xFFB3123F), Neon.Purple)))
-              .padding(10.dp),
-            contentAlignment = Alignment.Center,
-          ) {
-            LocalizedText("正在录音中", color = Color.White, fontWeight = FontWeight.Bold)
+  AppSurface {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+      Scaffold(
+        modifier = Modifier.widthIn(max = 640.dp).fillMaxSize().safeDrawingPadding(),
+        containerColor = Color.Transparent,
+        topBar = {
+          if (uploadTask.active) {
+            UploadProcessingBanner(uploadTask, onRestore = { UploadRuntime.restore() })
           }
-        }
-        when (tab) {
-          "recorder" ->
-        RecorderScreen(
-          recordings = snapshot.recordings,
-          recorderState = recorderState,
-          onMessage = { message = it },
-          onAuthChanged = { handleAuthChanged(it) },
-            )
-          "notes" ->
-            NotesScreen(
-              draft = snapshot.noteDraft,
-              readerFontSizeSp = snapshot.readerFontSizeSp,
-              onAuthChanged = { handleAuthChanged(it) },
-              onMessage = { message = it },
-            )
-          "settings" ->
-            SettingsScreen(
-              authState = authState,
-              selectedRecordingDeviceId = snapshot.selectedRecordingDeviceId,
-              selectedRecordingDeviceName = snapshot.selectedRecordingDeviceName,
-              selectedPlaybackDeviceId = snapshot.selectedPlaybackDeviceId,
-              selectedUploadOutputFormat = snapshot.selectedUploadOutputFormat,
-              bluetoothRecordingControlMode = snapshot.bluetoothRecordingControlMode,
-              bluetoothHeadsetControlMonitoringEnabled = snapshot.bluetoothHeadsetControlMonitoringEnabled,
-              bluetoothVolumeStopEnabled = snapshot.bluetoothVolumeStopEnabled,
-              bluetoothDefaultAICalling = snapshot.bluetoothDefaultAICalling,
-              bluetoothDefaultUploadLanguage = snapshot.bluetoothDefaultUploadLanguage,
-              bluetoothDefaultUploadSpeed = snapshot.bluetoothDefaultUploadSpeed,
-              onAuthChanged = { handleAuthChanged(it) },
-              onSignOut = {
-                firebaseRepository.signOut()
-                handleAuthChanged(AuthUiState())
-                message = "已退出登录"
-              },
-              onMessage = { message = it },
-            )
+        },
+        bottomBar = { AppBottomBar(selected = tab, onSelect = { tab = it }) },
+      ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+          if (recorderState.status != RecordingStatus.IDLE) {
+            Box(
+              Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF362127))
+                .padding(horizontal = 16.dp, vertical = 7.dp),
+              contentAlignment = Alignment.Center,
+            ) {
+              LocalizedText("正在录音中", color = VtaColors.Error, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            }
+          }
+          when (tab) {
+            "recorder" ->
+              RecorderScreen(
+                recordings = snapshot.recordings,
+                recorderState = recorderState,
+                onMessage = { message = it },
+                onAuthChanged = { handleAuthChanged(it) },
+              )
+            "notes" ->
+              NotesScreen(
+                draft = snapshot.noteDraft,
+                authUid = authState.uid,
+                readerFontSizeSp = snapshot.readerFontSizeSp,
+                onAuthChanged = { handleAuthChanged(it) },
+                onMessage = { message = it },
+              )
+            "settings" ->
+              SettingsScreen(
+                authState = authState,
+                activeInputLabel = recorderState.activeInputLabel,
+                selectedRecordingDeviceId = snapshot.selectedRecordingDeviceId,
+                selectedRecordingDeviceName = snapshot.selectedRecordingDeviceName,
+                selectedPlaybackDeviceId = snapshot.selectedPlaybackDeviceId,
+                selectedUploadOutputFormat = snapshot.selectedUploadOutputFormat,
+                bluetoothRecordingControlMode = snapshot.bluetoothRecordingControlMode,
+                bluetoothHeadsetControlMonitoringEnabled = snapshot.bluetoothHeadsetControlMonitoringEnabled,
+                bluetoothVolumeStopEnabled = snapshot.bluetoothVolumeStopEnabled,
+                bluetoothDefaultAICalling = snapshot.bluetoothDefaultAICalling,
+                bluetoothDefaultUploadLanguage = snapshot.bluetoothDefaultUploadLanguage,
+                bluetoothDefaultUploadSpeed = snapshot.bluetoothDefaultUploadSpeed,
+                onAuthChanged = { handleAuthChanged(it) },
+                onSignOut = {
+                  firebaseRepository.signOut()
+                  handleAuthChanged(AuthUiState())
+                  message = "已退出登录"
+                },
+                onMessage = { message = it },
+              )
+          }
         }
       }
     }
@@ -440,14 +471,16 @@ private fun UploadProcessingBanner(state: UploadTaskUiState, onRestore: () -> Un
     state.phase.startsWith("正在上传") -> "现在正在上传中，请不要关闭程序"
     else -> "现在正在转换中，请不要关闭程序"
   }
-  Column(
-    Modifier.fillMaxWidth().background(Neon.Purple.copy(alpha = 0.22f)).padding(horizontal = 16.dp, vertical = 8.dp),
-  ) {
-    LocalizedText(text, color = Neon.Text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-      LocalizedText("${state.phase} · ${state.progress}%", modifier = Modifier.weight(1f), color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+  Column(Modifier.fillMaxWidth().background(VtaColors.Panel)) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f).padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        LocalizedText(text, color = if (state.terminal) VtaColors.Error else VtaColors.Text, style = MaterialTheme.typography.labelMedium)
+        LocalizedText("${state.phase} · ${state.progress}%", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+      }
       TextButton(onClick = onRestore) { LocalizedText(if (state.terminal) "查看详情" else "查看进度") }
     }
+    if (!state.terminal) LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp),
+      color = VtaColors.Purple, trackColor = VtaColors.Stroke)
   }
 }
 
@@ -455,73 +488,35 @@ private fun UploadProcessingBanner(state: UploadTaskUiState, onRestore: () -> Un
 private fun UploadProgressDialog(state: UploadTaskUiState, onMinimize: () -> Unit) {
   val context = LocalContext.current
   val failed = state.error != null || state.terminal
-  Dialog(
-    onDismissRequest = { if (failed) UploadRuntime.finish() else onMinimize() },
-    properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
-  ) {
-    Box(
-      Modifier
-        .fillMaxSize()
-        .background(Color.Black.copy(alpha = 0.58f))
-        .padding(28.dp),
-      contentAlignment = Alignment.Center,
-    ) {
-      GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26) {
-        Column(
-          Modifier.padding(26.dp).verticalScroll(rememberScrollState()),
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-          Box(
-            Modifier
-              .size(112.dp)
-              .shadow(22.dp, CircleShape)
-              .clip(CircleShape)
-              .background(
-                Brush.radialGradient(
-                  if (failed) {
-                    listOf(Color(0xFFFF8A8A), Color(0xFFB3123F), Color(0xFF32101B))
-                  } else {
-                    listOf(Color(0xFF8EA0FF), Neon.Purple, Color(0xFF2C1B75))
-                  },
-                ),
-              ),
-            contentAlignment = Alignment.Center,
-          ) {
-            Icon(Icons.Rounded.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(58.dp))
+  Dialog(onDismissRequest = { if (failed) UploadRuntime.finish() else onMinimize() },
+    properties = DialogProperties(dismissOnClickOutside = false)) {
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
+      Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+          Box(Modifier.size(40.dp).background(if (failed) Color(0xFF432630) else Color(0xFF332B48), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = if (failed) VtaColors.Error else VtaColors.Purple,
+              modifier = Modifier.size(22.dp))
           }
-          LocalizedText(if (failed) "上传失败" else "正在处理上传", color = Neon.Text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-          LocalizedText(state.phase, color = Neon.Muted)
-          if (state.detail.isNotBlank()) LocalizedText(state.detail, color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-          LinearProgressIndicator(
-            progress = { state.progress / 100f },
-            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(6.dp)),
-            color = Neon.Purple,
-            trackColor = Color.White.copy(alpha = 0.14f),
-          )
+          LocalizedText(if (failed) "上传失败" else "正在处理上传", color = VtaColors.Text,
+            style = MaterialTheme.typography.titleLarge)
+        }
+        LocalizedText(state.phase, color = VtaColors.Text, style = MaterialTheme.typography.titleSmall)
+        if (state.detail.isNotBlank()) LocalizedText(state.detail, color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        if (!failed) {
+          LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth().height(4.dp),
+            color = VtaColors.Purple, trackColor = VtaColors.Stroke)
           Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            LocalizedText("${state.progress}%", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText("已执行 ${formatElapsed(state.elapsedMs)}", color = Neon.Muted)
+            Text("${state.progress}%", color = VtaColors.Text, style = MaterialTheme.typography.labelLarge)
+            LocalizedText("已执行 ${formatElapsed(state.elapsedMs)}", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
           }
-          if (!failed) {
-            GlassButton(
-              text = "最小化，后台运行",
-              modifier = Modifier.fillMaxWidth(),
-              onClick = onMinimize,
-            )
-          }
-          GlassButton(
-            text = if (failed) "关闭" else "取消处理",
-            modifier = Modifier.fillMaxWidth(),
-            enabled = failed || state.cancellable,
-            onClick = {
-              if (failed) {
-                UploadRuntime.finish()
-              } else {
-                context.startService(Intent(context, UploadProcessingService::class.java).setAction(UploadProcessingService.ACTION_CANCEL))
-              }
-            },
-          )
+          ActionButton("最小化，后台运行", modifier = Modifier.fillMaxWidth(), onClick = onMinimize)
+        }
+        TextButton(onClick = {
+          if (failed) UploadRuntime.finish()
+          else context.startService(Intent(context, UploadProcessingService::class.java).setAction(UploadProcessingService.ACTION_CANCEL))
+        }, modifier = Modifier.fillMaxWidth(), enabled = failed || state.cancellable) {
+          LocalizedText(if (failed) "关闭" else "取消处理", color = if (!failed && state.cancellable) VtaColors.Error else Color.Unspecified)
         }
       }
     }
@@ -580,7 +575,7 @@ private fun callingTypeLabel(item: AICallingItem): String =
     else -> "DeepSeek Skill"
   }
 
-private enum class CallInputRoute(val label: String) {
+internal enum class CallInputRoute(val label: String) {
   EARPIECE("听筒"),
   SPEAKER("公放"),
   BLUETOOTH("蓝牙"),
@@ -606,186 +601,11 @@ private fun steppedReaderSpeed(value: Float): Float =
 private fun formatReaderSpeed(value: Float): String =
   "%.1fx".format(steppedReaderSpeed(value))
 
-private object Neon {
-  val BgTop = Color(0xFF030610)
-  val BgMid = Color(0xFF090B1A)
-  val BgBottom = Color(0xFF02040A)
-  val Panel = Color(0xCC151827)
-  val PanelSoft = Color(0x991B2034)
-  val Stroke = Color(0x33FFFFFF)
-  val StrokeBright = Color(0x668F70FF)
-  val Purple = Color(0xFFB02CFF)
-  val Blue = Color(0xFF6D5BFF)
-  val Text = Color(0xFFF5F3FF)
-  val Muted = Color(0xFFAAA6C2)
-  val Dim = Color(0xFF6F6C86)
-  val Error = Color(0xFFFF7A9A)
-  val Success = Color(0xFF8F7CFF)
-}
-
-private val NeonBackgroundBrush =
-  Brush.verticalGradient(listOf(Neon.BgTop, Neon.BgMid, Neon.BgBottom))
-
-private val NeonPrimaryBrush =
-  Brush.horizontalGradient(listOf(Neon.Blue, Neon.Purple))
-
 @Composable
-private fun NeonSurface(content: @Composable () -> Unit) {
-  Box(Modifier.fillMaxSize().background(NeonBackgroundBrush)) {
-    Box(
-      Modifier
-        .size(260.dp)
-        .align(Alignment.TopEnd)
-        .background(
-          Brush.radialGradient(listOf(Color(0x335E44FF), Color.Transparent)),
-          CircleShape,
-        )
-    )
-    content()
-  }
-}
-
-@Composable
-private fun GlassCard(
-  modifier: Modifier = Modifier,
-  cornerRadius: Int = 22,
-  opaque: Boolean = false,
-  content: @Composable () -> Unit,
-) {
-  Surface(
-    modifier = modifier,
-    shape = RoundedCornerShape(cornerRadius.dp),
-    color = if (opaque) Neon.Panel.copy(alpha = 1f) else Neon.Panel,
-    border = BorderStroke(1.dp, Neon.Stroke),
-    tonalElevation = 0.dp,
-    shadowElevation = 0.dp,
-    content = content,
-  )
-}
-
-@Composable
-private fun GradientPrimaryButton(
-  text: String,
-  modifier: Modifier = Modifier,
-  icon: ImageVector? = null,
-  enabled: Boolean = true,
-  onClick: () -> Unit,
-) {
-  val alpha = if (enabled) 1f else 0.35f
-  Row(
-    modifier
-      .height(54.dp)
-      .clip(RoundedCornerShape(28.dp))
-      .background(if (enabled) NeonPrimaryBrush else Brush.horizontalGradient(listOf(Neon.PanelSoft, Neon.PanelSoft)))
-      .clickable(enabled = enabled, onClick = onClick)
-      .padding(horizontal = 22.dp),
-    horizontalArrangement = Arrangement.Center,
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    if (icon != null) {
-      Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = alpha), modifier = Modifier.size(20.dp))
-      Spacer(Modifier.width(8.dp))
-    }
-    LocalizedText(text, color = Color.White.copy(alpha = alpha), fontWeight = FontWeight.Bold)
-  }
-}
-
-@Composable
-private fun GlassButton(
-  text: String,
-  modifier: Modifier = Modifier,
-  icon: ImageVector? = null,
-  selected: Boolean = false,
-  enabled: Boolean = true,
-  onClick: () -> Unit,
-) {
-  val bg = if (selected) NeonPrimaryBrush else Brush.horizontalGradient(listOf(Neon.PanelSoft, Neon.PanelSoft))
-  Row(
-    modifier
-      .height(44.dp)
-      .clip(RoundedCornerShape(24.dp))
-      .background(bg)
-      .clickable(enabled = enabled, onClick = onClick)
-      .padding(horizontal = 16.dp),
-    horizontalArrangement = Arrangement.Center,
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    if (icon != null) {
-      Icon(icon, contentDescription = null, tint = if (enabled) Neon.Text else Neon.Dim, modifier = Modifier.size(18.dp))
-      Spacer(Modifier.width(6.dp))
-    }
-    LocalizedText(text, color = if (enabled) Neon.Text else Neon.Dim, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-  }
-}
-
-private data class NeonTab(val id: String, val label: String, val icon: ImageVector)
-
-@Composable
-private fun NeonBottomBar(selected: String, onSelect: (String) -> Unit) {
-  val tabs =
-    listOf(
-      NeonTab("recorder", "录音", Icons.Rounded.Mic),
-      NeonTab("notes", "笔记", Icons.Rounded.Description),
-      NeonTab("settings", "设置", Icons.Rounded.Settings),
-    )
-  GlassCard(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), cornerRadius = 24) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-      tabs.forEach { tab ->
-        val active = selected == tab.id
-        Column(
-          Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .clickable { onSelect(tab.id) }
-            .padding(horizontal = 22.dp, vertical = 4.dp),
-          horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-          Icon(tab.icon, contentDescription = tab.label, tint = if (active) Neon.Purple else Neon.Dim, modifier = Modifier.size(26.dp))
-          LocalizedText(tab.label, color = if (active) Neon.Text else Neon.Dim, style = MaterialTheme.typography.labelSmall)
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun RecorderHero(recorderState: RecorderUiState, onCallClick: () -> Unit) {
-  Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp)) {
-    Box(
-      Modifier
-        .size(180.dp)
-        .align(Alignment.TopEnd)
-        .background(Brush.radialGradient(listOf(Color(0x332A1B74), Color.Transparent)), CircleShape)
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        LocalizedText("ideavox", color = Neon.Text, fontSize = 42.sp, fontWeight = FontWeight.Black)
-        Box(
-          Modifier
-            .padding(end = 22.dp)
-            .size(96.dp)
-            .background(Brush.radialGradient(listOf(Color(0x665C2CFF), Color.Transparent)), CircleShape)
-            .clickable(onClick = onCallClick),
-          contentAlignment = Alignment.Center,
-        ) {
-          Icon(Icons.Rounded.Call, contentDescription = "AI电话", tint = Color(0xFFD89BFF), modifier = Modifier.size(58.dp))
-        }
-      }
-      LiveRecordingWaveform(
-        level = recorderState.inputLevel,
-        elapsedMs = recorderState.elapsedMs,
-        recording = recorderState.status == RecordingStatus.RECORDING,
-        paused = recorderState.status == RecordingStatus.PAUSED,
-      )
-    }
-  }
-}
-
-@Composable
-private fun LiveRecordingWaveform(level: Float, elapsedMs: Long, recording: Boolean, paused: Boolean) {
+private fun LiveRecordingWaveform(level: Float, elapsedMs: Long, recording: Boolean, paused: Boolean, height: Dp = 54.dp) {
   val samples = remember { mutableStateListOf<Float>() }
-  val maxSamples = 86
+  val maxSamples = 76
   val nextLevel = if (recording) level.coerceIn(0f, 1f) else 0f
-
   LaunchedEffect(recording, elapsedMs) {
     when {
       recording -> {
@@ -795,72 +615,47 @@ private fun LiveRecordingWaveform(level: Float, elapsedMs: Long, recording: Bool
       !paused -> samples.clear()
     }
   }
-
-  GlassCard(Modifier.fillMaxWidth().height(164.dp), cornerRadius = 12) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-      Box(
-        Modifier
-          .fillMaxSize()
-          .background(
-            Brush.radialGradient(
-              listOf(
-                Color(0x225E44FF).copy(alpha = if (recording) 0.22f + nextLevel * 0.22f else 0.10f),
-                Color.Transparent,
-              )
-            )
-          )
-      )
-      Canvas(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 28.dp)) {
-        val centerY = size.height / 2f
-        val step = if (maxSamples <= 1) size.width else size.width / (maxSamples - 1)
-        val startIndex = maxSamples - samples.size
-        val silentStroke = 1.7f
-        for (slot in 0 until maxSamples) {
-          val sampleIndex = slot - startIndex
-          val sample = samples.getOrNull(sampleIndex)
-          val x = slot * step
-          if (sample == null) {
-            drawLine(
-              color = Color.White.copy(alpha = 0.18f),
-              start = Offset(x, centerY),
-              end = Offset((x + step * 0.38f).coerceAtMost(size.width), centerY),
-              strokeWidth = silentStroke,
-              cap = StrokeCap.Round,
-            )
-          } else {
-            val boosted = (sample * 1.15f).coerceIn(0f, 1f)
-            val halfHeight = 5f + boosted * size.height * 0.44f
-            val alpha = 0.45f + boosted * 0.55f
-            drawLine(
-              color = Color(0xFFEEEAFE).copy(alpha = alpha),
-              start = Offset(x, centerY - halfHeight),
-              end = Offset(x, centerY + halfHeight),
-              strokeWidth = 4.2f,
-              cap = StrokeCap.Round,
-            )
-            drawLine(
-              color = Color(0xFF9C4DFF).copy(alpha = 0.20f + boosted * 0.35f),
-              start = Offset(x, centerY - halfHeight * 0.55f),
-              end = Offset(x, centerY + halfHeight * 0.55f),
-              strokeWidth = 7.5f,
-              cap = StrokeCap.Round,
-            )
-          }
-        }
-      }
-      LocalizedText(
-        if (recording || paused) formatHeroElapsed(elapsedMs) else "0:00",
-        color = if (recording) Neon.Text else Neon.Muted,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 12.dp),
+  Canvas(Modifier.fillMaxWidth().height(height).padding(horizontal = 18.dp, vertical = 6.dp)) {
+    val centerY = size.height / 2f
+    val step = size.width / (maxSamples - 1)
+    val startIndex = maxSamples - samples.size
+    for (slot in 0 until maxSamples) {
+      val sample = samples.getOrNull(slot - startIndex)
+      val x = slot * step
+      val extent = if (sample == null) 1.2.dp.toPx() else (2.dp.toPx() + sample * size.height * 0.44f)
+      drawLine(
+        color = if (sample == null) VtaColors.Stroke else VtaColors.Purple.copy(alpha = 0.65f + 0.35f * sample),
+        start = Offset(x, centerY - extent), end = Offset(x, centerY + extent),
+        strokeWidth = if (sample == null) 1.dp.toPx() else 2.dp.toPx(), cap = StrokeCap.Round,
       )
     }
   }
 }
 
 @Composable
+private fun RecordingMeter(recorderState: RecorderUiState, modifier: Modifier = Modifier, compact: Boolean = false) {
+  val status = recorderState.status
+  val recording = status == RecordingStatus.RECORDING
+  val paused = status == RecordingStatus.PAUSED
+  Column(modifier.fillMaxWidth().padding(top = if (compact) 4.dp else 14.dp, bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+      Box(Modifier.size(6.dp).background(if (recording) VtaColors.Error else VtaColors.Purple, CircleShape))
+      LocalizedText(when (status) {
+        RecordingStatus.RECORDING -> "正在录音"
+        RecordingStatus.PAUSED -> "已暂停"
+        RecordingStatus.IDLE -> "就绪"
+      }, color = VtaColors.Text, style = MaterialTheme.typography.labelMedium)
+    }
+    Text(formatHeroElapsed(recorderState.elapsedMs), color = VtaColors.Text,
+      style = (if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.displayMedium).copy(fontFeatureSettings = "tnum"), modifier = Modifier.padding(top = 7.dp))
+    LiveRecordingWaveform(recorderState.inputLevel, recorderState.elapsedMs, recording, paused, if (compact) 24.dp else 54.dp)
+  }
+}
+
+@Composable
 private fun SettingsScreen(
   authState: AuthUiState,
+  activeInputLabel: String?,
   selectedRecordingDeviceId: Int?,
   selectedRecordingDeviceName: String?,
   selectedPlaybackDeviceId: Int?,
@@ -877,6 +672,8 @@ private fun SettingsScreen(
 ) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
+  var settingsPage by rememberSaveable { mutableStateOf<String?>(null) }
+  BackHandler(settingsPage != null) { settingsPage = null }
   var showLogin by remember { mutableStateOf(false) }
   var appLanguageMenuExpanded by remember { mutableStateOf(false) }
   var inputMenuExpanded by remember { mutableStateOf(false) }
@@ -899,19 +696,43 @@ private fun SettingsScreen(
     }
     pendingAudioMenu = null
   }
-  val inputDevices = AudioDeviceSelection.inputDevices(context)
-  val outputDevices = AudioDeviceSelection.outputDevices(context)
+  var audioDeviceVersion by remember { mutableStateOf(0) }
+  DisposableEffect(context) {
+    val audioManager = context.getSystemService(AudioManager::class.java)
+    val callback = object : AudioDeviceCallback() {
+      override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) { audioDeviceVersion++ }
+      override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) { audioDeviceVersion++ }
+    }
+    audioManager?.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper()))
+    onDispose { audioManager?.unregisterAudioDeviceCallback(callback) }
+  }
+  val inputDevices = remember(audioDeviceVersion, inputMenuExpanded) { AudioDeviceSelection.inputDevices(context) }
+  val outputDevices = remember(audioDeviceVersion, outputMenuExpanded) { AudioDeviceSelection.outputDevices(context) }
   val selectedInputDevice =
     selectedRecordingDeviceId?.let { selected -> inputDevices.firstOrNull { it.id == selected } }
       ?: selectedRecordingDeviceName?.let { name ->
         inputDevices.firstOrNull { it.productName?.toString() == name }
       }
   val inputLabel =
-    selectedInputDevice?.let(AudioDeviceSelection::label)
+    activeInputLabel?.let { "正在使用：$it" }
+      ?: selectedInputDevice?.let(AudioDeviceSelection::label)
       ?: selectedRecordingDeviceName?.takeIf { it.isNotBlank() }?.let { "$it · 未连接（重新连接后优先）" }
       ?: "系统默认"
-  val outputLabel =
-    selectedPlaybackDeviceId?.let { selected -> outputDevices.firstOrNull { it.id == selected }?.let(AudioDeviceSelection::label) } ?: "系统默认"
+  val systemPlaybackRoute = remember(context, audioDeviceVersion) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) null else runCatching {
+      val manager = context.getSystemService(AudioManager::class.java)
+      val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build()
+      manager?.getAudioDevicesForAttributes(attributes)?.takeIf { it.isNotEmpty() }?.joinToString(" / ") { device ->
+        val label = AudioDeviceSelection.label(device)
+        if (device.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER || device.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+          label.substringAfterLast(" · ")
+        } else label
+      }
+    }.getOrNull()
+  }
+  val outputLabel = selectedPlaybackDeviceId?.let { selected ->
+    outputDevices.firstOrNull { it.id == selected }?.let(AudioDeviceSelection::label)
+  } ?: systemPlaybackRoute?.let { "系统默认 · $it" } ?: "系统默认"
 
   fun loadBluetoothCallingItems(openMenu: Boolean = false) {
     if (authState.uid == null) {
@@ -950,268 +771,211 @@ private fun SettingsScreen(
     }
   }
 
-  Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    LocalizedText("设置", color = Neon.Text, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-    GlassCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        LocalizedText("界面语言", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Box {
-          GlassButton(
-            AppLanguageManager.current(context).nativeName,
-            icon = Icons.Rounded.ExpandMore,
-            onClick = { appLanguageMenuExpanded = true },
-          )
-          DropdownMenu(
-            expanded = appLanguageMenuExpanded,
-            onDismissRequest = { appLanguageMenuExpanded = false },
-          ) {
-            AppLanguage.entries.forEach { language ->
-              DropdownMenuItem(
-                text = { LocalizedText(language.nativeName) },
-                onClick = {
-                  appLanguageMenuExpanded = false
-                  if (language != AppLanguageManager.current(context)) {
-                    AppLanguageManager.set(context, language)
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                      (context as? MainActivity)?.recreate()
+  Column(
+    Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    PageHeader(
+      title = when (settingsPage) {
+        "bluetooth" -> "蓝牙与自动上传"
+        "upload" -> "上传设置"
+        "general" -> "账户与语言"
+        else -> "设置"
+      },
+      onBack = if (settingsPage != null) ({ settingsPage = null }) else null,
+    )
+    key(settingsPage) {
+      Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        when (settingsPage) {
+          null -> {
+            SectionLabel("音频设备")
+            AppPanel(Modifier.fillMaxWidth()) {
+              Column {
+                Box(Modifier.fillMaxWidth()) {
+                  SettingsRow("录音设备", inputLabel, prominent = true, icon = Icons.Outlined.Mic, onClick = { openAudioMenu("input") })
+                  DropdownMenu(expanded = inputMenuExpanded, onDismissRequest = { inputMenuExpanded = false }) {
+                    DropdownMenuItem(text = { LocalizedText("系统默认") }, onClick = {
+                      appStore.saveSelectedRecordingDevice(null, null)
+                      inputMenuExpanded = false
+                    })
+                    inputDevices.forEach { device ->
+                      DropdownMenuItem(text = { LocalizedText(AudioDeviceSelection.label(device)) }, onClick = {
+                        appStore.saveSelectedRecordingDevice(device.id, device.productName?.toString())
+                        inputMenuExpanded = false
+                      })
                     }
                   }
-                },
-              )
-            }
-          }
-        }
-        LocalizedText(
-          "语言切换后，界面、通知和语音提示都会使用所选语言。",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-      }
-    }
-    GlassCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        LocalizedText("当前账户", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        if (authState.email == null) LocalizedText("未登录", color = Neon.Muted) else Text(authState.email, color = Neon.Muted)
-        LocalizedText(if (authState.isVip) "VIP 用户" else "普通用户", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-      }
-    }
-    if (authState.uid == null) {
-      GradientPrimaryButton("登录", modifier = Modifier.fillMaxWidth(), onClick = { showLogin = true })
-    } else {
-      GlassButton("退出登录", modifier = Modifier.fillMaxWidth(), onClick = onSignOut)
-    }
-
-    GlassCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LocalizedText("音频设备", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Box {
-          GlassButton("录音：$inputLabel", icon = Icons.Rounded.Mic, onClick = { openAudioMenu("input") })
-          DropdownMenu(expanded = inputMenuExpanded, onDismissRequest = { inputMenuExpanded = false }) {
-            DropdownMenuItem(
-              text = { LocalizedText("系统默认") },
-              onClick = {
-                appStore.saveSelectedRecordingDevice(null, null)
-                inputMenuExpanded = false
-              },
-            )
-            inputDevices.forEach { device ->
-              DropdownMenuItem(
-                text = { LocalizedText(AudioDeviceSelection.label(device)) },
-                onClick = {
-                  appStore.saveSelectedRecordingDevice(device.id, device.productName?.toString())
-                  inputMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        Box {
-          GlassButton("播放：$outputLabel", icon = Icons.Rounded.PlayArrow, onClick = { openAudioMenu("output") })
-          DropdownMenu(expanded = outputMenuExpanded, onDismissRequest = { outputMenuExpanded = false }) {
-            DropdownMenuItem(
-              text = { LocalizedText("系统默认") },
-              onClick = {
-                appStore.saveSelectedPlaybackDevice(null)
-                outputMenuExpanded = false
-              },
-            )
-            outputDevices.forEach { device ->
-              DropdownMenuItem(
-                text = { LocalizedText(AudioDeviceSelection.label(device)) },
-                onClick = {
-                  appStore.saveSelectedPlaybackDevice(device.id)
-                  outputMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        LocalizedText("已固定的蓝牙录音设备只要仍连接，就不会被后连接的其他蓝牙耳机替换。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        LocalizedText("录音设备会影响新录音；播放设备会影响录音详情里的音频播放。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-      }
-    }
-    GlassCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LocalizedText("媒体按键录音控制", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Row(
-          Modifier
-            .fillMaxWidth()
-            .clickable {
-              appStore.saveBluetoothHeadsetControlMonitoringEnabled(!bluetoothHeadsetControlMonitoringEnabled)
-            },
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          Checkbox(
-            checked = bluetoothHeadsetControlMonitoringEnabled,
-            onCheckedChange = { enabled -> appStore.saveBluetoothHeadsetControlMonitoringEnabled(enabled) },
-          )
-          Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            LocalizedText("播放键控制监视", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText(
-              if (bluetoothHeadsetControlMonitoringEnabled) {
-                "开启时会监听蓝牙耳机或系统副屏的播放键；无蓝牙时使用系统默认麦克风。"
-              } else {
-                "关闭时不会拦截其他音乐 App 的媒体控制。"
-              },
-              color = Neon.Muted,
-              style = MaterialTheme.typography.bodySmall,
-            )
-          }
-        }
-        Box {
-          GlassButton(
-            "控制模式：${bluetoothRecordingControlMode.label}",
-            icon = Icons.Rounded.Settings,
-            onClick = { bluetoothControlModeMenuExpanded = true },
-          )
-          DropdownMenu(expanded = bluetoothControlModeMenuExpanded, onDismissRequest = { bluetoothControlModeMenuExpanded = false }) {
-            BluetoothRecordingControlMode.entries.forEach { mode ->
-              DropdownMenuItem(
-                text = { LocalizedText(mode.label) },
-                onClick = {
-                  appStore.saveBluetoothRecordingControlMode(mode)
-                  bluetoothControlModeMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        LocalizedText(
-          BluetoothRecordingControlModeResolver.description(bluetoothRecordingControlMode),
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Checkbox(
-            checked = bluetoothVolumeStopEnabled,
-            onCheckedChange = { appStore.saveBluetoothVolumeStopEnabled(it) },
-          )
-          LocalizedText("录音中调低通话音量结束", color = Neon.Text, fontWeight = FontWeight.Bold)
-        }
-        LocalizedText(
-          "眼镜左侧后滑降低音量：结束并倒计时。录音开始后前 10 秒为防误触保护期，之后才响应。手机通话音量键也可能触发。最低音量时自动预留一档；仅蓝牙麦克风录音时生效。",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-        LocalizedText("蓝牙自动上传默认值", color = Neon.Text, fontWeight = FontWeight.Bold)
-        Box {
-          GlassButton(
-            if (bluetoothCallingLoading) {
-              "默认拨打部门：读取中…"
-            } else {
-              "默认拨打部门：${bluetoothDefaultAICalling?.title ?: "第一个呼叫对象"}"
-            },
-            icon = Icons.Rounded.Call,
-            onClick = {
-              if (bluetoothCallingItems.isEmpty()) {
-                loadBluetoothCallingItems(openMenu = true)
-              } else {
-                bluetoothCallingMenuExpanded = true
+                }
+                AppDivider(Modifier.padding(horizontal = 16.dp))
+                Box(Modifier.fillMaxWidth()) {
+                  SettingsRow("播放设备", outputLabel, prominent = true, icon = Icons.Outlined.Headphones, onClick = { openAudioMenu("output") })
+                  DropdownMenu(expanded = outputMenuExpanded, onDismissRequest = { outputMenuExpanded = false }) {
+                    DropdownMenuItem(text = { LocalizedText("系统默认") }, onClick = {
+                      appStore.saveSelectedPlaybackDevice(null)
+                      outputMenuExpanded = false
+                    })
+                    outputDevices.forEach { device ->
+                      DropdownMenuItem(text = { LocalizedText(AudioDeviceSelection.label(device)) }, onClick = {
+                        appStore.saveSelectedPlaybackDevice(device.id)
+                        outputMenuExpanded = false
+                      })
+                    }
+                  }
+                }
               }
-            },
-          )
-          DropdownMenu(expanded = bluetoothCallingMenuExpanded, onDismissRequest = { bluetoothCallingMenuExpanded = false }) {
-            DropdownMenuItem(
-              text = { LocalizedText("自动选择第一个呼叫对象") },
-              onClick = {
-                appStore.saveBluetoothDefaultAICalling(null)
-                bluetoothCallingMenuExpanded = false
-              },
+            }
+            SectionLabel("媒体按键录音控制")
+            AppPanel(Modifier.fillMaxWidth()) {
+              Box(Modifier.fillMaxWidth().toggleable(
+                value = bluetoothHeadsetControlMonitoringEnabled, role = Role.Switch,
+                onValueChange = appStore::saveBluetoothHeadsetControlMonitoringEnabled,
+              )) {
+                SettingsRow("播放键控制监视",
+                  if (bluetoothHeadsetControlMonitoringEnabled) "正在监听播放键" else "不接管媒体按键",
+                  icon = Icons.Outlined.PlayArrow,
+                  trailing = { Switch(checked = bluetoothHeadsetControlMonitoringEnabled, onCheckedChange = null) })
+              }
+            }
+            SectionLabel("更多设置")
+            Column {
+              SettingsRow("蓝牙与自动上传", bluetoothRecordingControlMode.label, Icons.Outlined.Bluetooth, onClick = { settingsPage = "bluetooth" })
+              AppDivider(Modifier.padding(horizontal = 16.dp))
+              SettingsRow("上传设置", selectedUploadOutputFormat.shortLabel(), Icons.Outlined.CloudUpload, onClick = { settingsPage = "upload" })
+              AppDivider(Modifier.padding(horizontal = 16.dp))
+              SettingsRow("账户与语言", AppLanguageManager.current(context).nativeName, Icons.Outlined.Person, onClick = { settingsPage = "general" })
+            }
+          }
+          "bluetooth" -> {
+            SectionLabel("媒体按键录音控制")
+            LocalizedText(if (bluetoothHeadsetControlMonitoringEnabled) {
+              "开启时会监听蓝牙耳机或系统副屏的播放键；无蓝牙时使用系统默认麦克风。"
+            } else "关闭时不会拦截其他音乐 App 的媒体控制。",
+              color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Box {
+              SettingsRow("控制模式", bluetoothRecordingControlMode.label, Icons.Outlined.Tune, onClick = { bluetoothControlModeMenuExpanded = true })
+              DropdownMenu(expanded = bluetoothControlModeMenuExpanded, onDismissRequest = { bluetoothControlModeMenuExpanded = false }) {
+                BluetoothRecordingControlMode.entries.forEach { mode ->
+                  DropdownMenuItem(text = { LocalizedText(mode.label) }, onClick = {
+                    appStore.saveBluetoothRecordingControlMode(mode)
+                    bluetoothControlModeMenuExpanded = false
+                  })
+                }
+              }
+            }
+            LocalizedText(BluetoothRecordingControlModeResolver.description(bluetoothRecordingControlMode),
+              color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+            AppDivider(Modifier.padding(horizontal = 16.dp))
+            Box(Modifier.fillMaxWidth().toggleable(value = bluetoothVolumeStopEnabled, role = Role.Switch,
+              onValueChange = appStore::saveBluetoothVolumeStopEnabled)) {
+              SettingsRow("录音中调低通话音量结束", icon = Icons.Outlined.GraphicEq,
+                trailing = { Switch(checked = bluetoothVolumeStopEnabled, onCheckedChange = null) })
+            }
+            LocalizedText(
+              "眼镜左侧后滑降低音量：结束并倒计时。录音开始后前 10 秒为防误触保护期，之后才响应。手机通话音量键也可能触发。最低音量时自动预留一档；仅蓝牙麦克风录音时生效。",
+              color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp),
             )
-            bluetoothCallingItems.forEach { item ->
-              DropdownMenuItem(
-                text = { Text(item.title) },
-                onClick = {
-                  appStore.saveBluetoothDefaultAICalling(item)
-                  bluetoothCallingMenuExpanded = false
-                },
-              )
+            SectionLabel("蓝牙自动上传默认值")
+            AppPanel(Modifier.fillMaxWidth()) {
+              Column {
+                Box {
+                  SettingsRow("默认拨打部门", if (bluetoothCallingLoading) "加载中…" else bluetoothDefaultAICalling?.title ?: "第一个呼叫对象",
+                    Icons.Outlined.Call, onClick = {
+                      if (bluetoothCallingItems.isEmpty()) loadBluetoothCallingItems(openMenu = true)
+                      else bluetoothCallingMenuExpanded = true
+                    })
+                  DropdownMenu(expanded = bluetoothCallingMenuExpanded, onDismissRequest = { bluetoothCallingMenuExpanded = false }) {
+                    DropdownMenuItem(text = { LocalizedText("自动选择第一个呼叫对象") }, onClick = {
+                      appStore.saveBluetoothDefaultAICalling(null)
+                      bluetoothCallingMenuExpanded = false
+                    })
+                    bluetoothCallingItems.forEach { item ->
+                      DropdownMenuItem(text = { Text(item.title) }, onClick = {
+                        appStore.saveBluetoothDefaultAICalling(item)
+                        bluetoothCallingMenuExpanded = false
+                      })
+                    }
+                  }
+                }
+                AppDivider(Modifier.padding(horizontal = 16.dp))
+                Box {
+                  SettingsRow("默认上传语言", bluetoothDefaultUploadLanguage.label, Icons.Outlined.Translate, onClick = { bluetoothLanguageMenuExpanded = true })
+                  DropdownMenu(expanded = bluetoothLanguageMenuExpanded, onDismissRequest = { bluetoothLanguageMenuExpanded = false }) {
+                    ReaderLanguage.entries.forEach { language ->
+                      DropdownMenuItem(text = { LocalizedText(language.label) }, onClick = {
+                        appStore.saveBluetoothDefaultUploadLanguage(language)
+                        bluetoothLanguageMenuExpanded = false
+                      })
+                    }
+                  }
+                }
+                AppDivider(Modifier.padding(horizontal = 16.dp))
+                Box {
+                  SettingsRow("默认音频倍速", formatSpeed(bluetoothDefaultUploadSpeed), Icons.Outlined.GraphicEq, onClick = { bluetoothSpeedMenuExpanded = true })
+                  DropdownMenu(expanded = bluetoothSpeedMenuExpanded, onDismissRequest = { bluetoothSpeedMenuExpanded = false }) {
+                    UploadSpeeds.forEach { speed ->
+                      DropdownMenuItem(text = { LocalizedText(formatSpeed(speed)) }, onClick = {
+                        appStore.saveBluetoothDefaultUploadSpeed(speed)
+                        bluetoothSpeedMenuExpanded = false
+                      })
+                    }
+                  }
+                }
+              }
             }
+            bluetoothCallingError?.let { LocalizedText(it, color = VtaColors.Error, style = MaterialTheme.typography.bodySmall) }
+            LocalizedText("录音中按一次结束并进入 10 秒确认；再次按下后按以上设置逐条上传。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+            SectionLabel("设备说明")
+            LocalizedText("已固定的蓝牙录音设备只要仍连接，就不会被后连接的其他蓝牙耳机替换。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+            LocalizedText("录音设备会影响新录音；播放设备会影响录音详情里的音频播放。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+          }
+          "upload" -> {
+            AppPanel(Modifier.fillMaxWidth()) {
+              Box {
+                SettingsRow("输出格式", selectedUploadOutputFormat.shortLabel(), Icons.Outlined.CloudUpload, onClick = { uploadFormatMenuExpanded = true })
+                DropdownMenu(expanded = uploadFormatMenuExpanded, onDismissRequest = { uploadFormatMenuExpanded = false }) {
+                  UploadOutputFormat.entries.forEach { format ->
+                    DropdownMenuItem(text = { LocalizedText(format.shortLabel()) }, onClick = {
+                      appStore.saveSelectedUploadOutputFormat(format)
+                      uploadFormatMenuExpanded = false
+                    })
+                  }
+                }
+              }
+            }
+            LocalizedText("合并上传对话框和蓝牙自动上传都会使用这里的输出格式。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+          }
+          "general" -> {
+            SectionLabel("当前账户")
+            AppPanel(Modifier.fillMaxWidth()) {
+              SettingsRow(authState.email ?: "未登录", if (authState.uid != null) (if (authState.isVip) "VIP 用户" else "普通用户") else "",
+                icon = Icons.Outlined.Person, trailing = {
+                  TextButton(onClick = if (authState.uid == null) ({ showLogin = true }) else onSignOut) {
+                    LocalizedText(if (authState.uid == null) "登录" else "退出登录")
+                  }
+                })
+            }
+            Spacer(Modifier.height(4.dp))
+            AppPanel(Modifier.fillMaxWidth()) {
+              Box {
+                SettingsRow("界面语言", AppLanguageManager.current(context).nativeName, Icons.Outlined.Translate,
+                  onClick = { appLanguageMenuExpanded = true })
+                DropdownMenu(expanded = appLanguageMenuExpanded, onDismissRequest = { appLanguageMenuExpanded = false }) {
+                  AppLanguage.entries.forEach { language ->
+                    DropdownMenuItem(text = { Text(language.nativeName) }, onClick = {
+                      appLanguageMenuExpanded = false
+                      if (language != AppLanguageManager.current(context)) {
+                        AppLanguageManager.set(context, language)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) (context as? MainActivity)?.recreate()
+                      }
+                    })
+                  }
+                }
+              }
+            }
+            LocalizedText("语言切换后，界面、通知和语音提示都会使用所选语言。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
           }
         }
-        bluetoothCallingError?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        Box {
-          GlassButton(
-            "默认上传语言：${bluetoothDefaultUploadLanguage.label}",
-            icon = Icons.Rounded.Description,
-            onClick = { bluetoothLanguageMenuExpanded = true },
-          )
-          DropdownMenu(expanded = bluetoothLanguageMenuExpanded, onDismissRequest = { bluetoothLanguageMenuExpanded = false }) {
-            ReaderLanguage.entries.forEach { language ->
-              DropdownMenuItem(
-                text = { LocalizedText(language.label) },
-                onClick = {
-                  appStore.saveBluetoothDefaultUploadLanguage(language)
-                  bluetoothLanguageMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        Box {
-          GlassButton(
-            "默认音频倍速：${formatSpeed(bluetoothDefaultUploadSpeed)}",
-            icon = Icons.Rounded.GraphicEq,
-            onClick = { bluetoothSpeedMenuExpanded = true },
-          )
-          DropdownMenu(expanded = bluetoothSpeedMenuExpanded, onDismissRequest = { bluetoothSpeedMenuExpanded = false }) {
-            UploadSpeeds.forEach { speed ->
-              DropdownMenuItem(
-                text = { LocalizedText(formatSpeed(speed)) },
-                onClick = {
-                  appStore.saveBluetoothDefaultUploadSpeed(speed)
-                  bluetoothSpeedMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        LocalizedText(
-          "录音中按一次结束并进入 10 秒确认；再次按下后按以上设置逐条上传。",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-      }
-    }
-    GlassCard(Modifier.fillMaxWidth()) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        LocalizedText("上传设置", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Box {
-          GlassButton("输出格式：${selectedUploadOutputFormat.shortLabel()}", icon = Icons.Rounded.Upload, onClick = { uploadFormatMenuExpanded = true })
-          DropdownMenu(expanded = uploadFormatMenuExpanded, onDismissRequest = { uploadFormatMenuExpanded = false }) {
-            UploadOutputFormat.entries.forEach { format ->
-              DropdownMenuItem(
-                text = { LocalizedText(format.shortLabel()) },
-                onClick = {
-                  appStore.saveSelectedUploadOutputFormat(format)
-                  uploadFormatMenuExpanded = false
-                },
-              )
-            }
-          }
-        }
-        LocalizedText("合并上传对话框和蓝牙自动上传都会使用这里的输出格式。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
       }
     }
   }
@@ -1219,7 +983,7 @@ private fun SettingsScreen(
 }
 
 @Composable
-private fun LoginDialog(onSignedIn: (AuthUiState) -> Unit, onDismiss: () -> Unit) {
+internal fun LoginDialog(onSignedIn: (AuthUiState) -> Unit, onDismiss: () -> Unit) {
   val scope = rememberCoroutineScope()
   var email by remember { mutableStateOf("") }
   var password by remember { mutableStateOf("") }
@@ -1229,8 +993,8 @@ private fun LoginDialog(onSignedIn: (AuthUiState) -> Unit, onDismiss: () -> Unit
     title = { LocalizedText("邮箱登录") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(email, { email = it }, label = { LocalizedText("邮箱") })
-        OutlinedTextField(password, { password = it }, label = { LocalizedText("密码") }, visualTransformation = PasswordVisualTransformation())
+        OutlinedTextField(email, { email = it }, label = { LocalizedText("邮箱") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(password, { password = it }, label = { LocalizedText("密码") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
         error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error) }
       }
     },
@@ -1479,12 +1243,21 @@ private fun RecorderScreen(
     onBlackoutChange = { proximityBlackout = it },
   )
 
+  BackHandler(recordingsPage || aiPhase == AICallingPhase.CONTACTS) {
+    when {
+      selectionMode -> { selectionMode = false; selected.clear() }
+      recordingsPage -> recordingsPage = false
+      aiPhase == AICallingPhase.CONTACTS -> aiPhase = AICallingPhase.HOME
+    }
+  }
+
   if (!recordingsPage) {
     Box(Modifier.fillMaxSize()) {
       when (aiPhase) {
         AICallingPhase.HOME ->
           AICallingHomeScreen(
             recorderState = recorderState,
+            recentRecordings = originalRecordings.take(2),
             localRecordingCount = originalRecordings.size,
             onStartNormalRecording = {
               val intent = Intent(context, RecordingService::class.java).setAction(RecordingService.ACTION_START)
@@ -1504,6 +1277,7 @@ private fun RecorderScreen(
             },
             onOpenContacts = { loadAICallingItems() },
             onOpenRecordings = { recordingsPage = true },
+            onOpenRecent = { detailRecordingId = it.id },
           )
         AICallingPhase.CONTACTS ->
           AICallingContactsScreen(
@@ -1742,72 +1516,106 @@ private fun RecorderScreen(
 @Composable
 private fun AICallingHomeScreen(
   recorderState: RecorderUiState,
+  recentRecordings: List<RecordingItem>,
   localRecordingCount: Int,
   onStartNormalRecording: () -> Unit,
   onPauseOrResume: () -> Unit,
   onStopNormalRecording: () -> Unit,
   onOpenContacts: () -> Unit,
   onOpenRecordings: () -> Unit,
+  onOpenRecent: (RecordingItem) -> Unit,
 ) {
-  Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    RecorderHero(recorderState, onCallClick = onOpenContacts)
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28) {
-      Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        GlassButton(
-          "普通录音",
-          modifier = Modifier.weight(1f),
-          selected = recorderState.status == RecordingStatus.IDLE,
-          enabled = recorderState.status == RecordingStatus.IDLE,
-          onClick = onStartNormalRecording,
-        )
-        GlassButton(
-          if (recorderState.status == RecordingStatus.PAUSED) "继续" else "暂停",
-          modifier = Modifier.weight(1f),
-          selected = recorderState.status == RecordingStatus.RECORDING,
-          enabled = recorderState.status != RecordingStatus.IDLE,
-          onClick = onPauseOrResume,
-        )
-        GlassButton(
-          "结束",
-          modifier = Modifier.weight(1f),
-          selected = false,
-          enabled = recorderState.status != RecordingStatus.IDLE,
-          onClick = onStopNormalRecording,
-        )
+  val idle = recorderState.status == RecordingStatus.IDLE
+  Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      Image(painterResource(R.drawable.voice_orb), contentDescription = null, modifier = Modifier.size(44.dp))
+      Column(Modifier.weight(1f)) {
+        Text("VoiceToAction", color = VtaColors.Text, style = MaterialTheme.typography.titleMedium)
+        LocalizedText("声音，变成行动", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
       }
+      Text(SimpleDateFormat("MM.dd", Locale.getDefault()).format(Date()), color = VtaColors.Muted,
+        style = MaterialTheme.typography.labelMedium)
     }
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-      Row(
-        Modifier.fillMaxWidth().padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-          LocalizedText("AI Calling", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-          LocalizedText("像打电话一样选择部门、录音并触发自动化", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+    LocalizedText("让每个想法\n都有下一步。", color = VtaColors.Text, style = MaterialTheme.typography.headlineLarge)
+    LocalizedText("录下灵感，交给 AI 继续。", color = VtaColors.Muted, style = MaterialTheme.typography.bodyMedium)
+    SectionLabel("开始创作")
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+      .border(1.dp, VtaColors.GlassEdge, RoundedCornerShape(28.dp))
+      .then(if (idle) Modifier.clickable(role = Role.Button, onClick = onStartNormalRecording) else Modifier)) {
+      Image(painterResource(R.drawable.voice_studio), contentDescription = null,
+        modifier = Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+      Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (idle) 0.19f else 0.50f)))
+      if (idle) Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+          GlassIcon(Icons.Outlined.Mic)
+          ArrowBadge()
         }
-        GradientPrimaryButton("AI电话", icon = Icons.Rounded.Call, onClick = onOpenContacts)
+        Spacer(Modifier.height(14.dp))
+        LocalizedText("普通录音", color = Color.White, style = MaterialTheme.typography.titleLarge)
+        LocalizedText("点击开始，记录此刻", color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodySmall)
+      } else RecordingMeter(recorderState, modifier = Modifier.padding(8.dp))
+    }
+    if (!idle) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      QuietButton(if (recorderState.status == RecordingStatus.PAUSED) "继续" else "暂停", modifier = Modifier.weight(1f),
+        icon = if (recorderState.status == RecordingStatus.PAUSED) Icons.Outlined.PlayArrow else Icons.Outlined.Pause, onClick = onPauseOrResume)
+      Button(onClick = onStopNormalRecording, modifier = Modifier.weight(1f).heightIn(min = 50.dp), shape = CircleShape,
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = VtaColors.Error, contentColor = Color(0xFF391820))) {
+        Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(6.dp))
+        LocalizedText("结束", style = MaterialTheme.typography.labelLarge)
       }
     }
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-      Row(
-        Modifier.fillMaxWidth().padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      StudioShortcut("显示录音列表", "$localRecordingCount 个本地文件", Icons.Outlined.Description,
+        Modifier.weight(1f), onOpenRecordings)
+      StudioShortcut("AI电话", "选择对象，即刻开始", Icons.Outlined.Call, Modifier.weight(1f), onOpenContacts)
+    }
+    SectionLabel("最近录音")
+    if (recentRecordings.isEmpty()) AppPanel(Modifier.fillMaxWidth()) {
+      Row(Modifier.padding(18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        GlassIcon(Icons.Outlined.GraphicEq)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-          LocalizedText("录音文件", color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-          LocalizedText("$localRecordingCount 个本地文件", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+          LocalizedText("等待你的第一个声音", color = VtaColors.Text, style = MaterialTheme.typography.bodyMedium)
+          LocalizedText("开始录音后，会自动保存在这里。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
-        GradientPrimaryButton("显示录音列表", icon = Icons.Rounded.Description, onClick = onOpenRecordings)
+      }
+    } else recentRecordings.forEach { item ->
+      AppPanel(Modifier.fillMaxWidth().clickable { onOpenRecent(item) }) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(RecordingLists.displayName(item), color = VtaColors.Text, style = MaterialTheme.typography.titleSmall,
+              maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${formatRecordingDuration(item.durationMs)} · ${formatRecordingSize(item.sizeBytes)}", color = VtaColors.Muted,
+              style = MaterialTheme.typography.bodySmall)
+          }
+          ArrowBadge()
+        }
       }
     }
-    Spacer(Modifier.weight(1f))
+    Spacer(Modifier.height(4.dp))
   }
 }
 
 @Composable
-private fun AICallingContactsScreen(
+private fun StudioShortcut(title: String, subtitle: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
+  AppPanel(modifier.clickable(role = Role.Button, onClick = onClick)) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        GlassIcon(icon)
+        Icon(Icons.Outlined.ArrowOutward, contentDescription = null, tint = VtaColors.Muted, modifier = Modifier.size(18.dp))
+      }
+      Spacer(Modifier.height(6.dp))
+      LocalizedText(title, color = VtaColors.Text, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+      LocalizedText(subtitle, color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+  }
+}
+
+@Composable
+internal fun AICallingContactsScreen(
   items: List<AICallingItem>,
   loading: Boolean,
   error: String?,
@@ -1815,71 +1623,15 @@ private fun AICallingContactsScreen(
   onRetry: () -> Unit,
   onCall: (AICallingItem) -> Unit,
 ) {
-  Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-      LocalizedText("呼叫对象", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-      GlassButton("返回", icon = Icons.AutoMirrored.Rounded.ArrowBack, onClick = onBack)
-    }
-    LocalizedText("请选择要记录并同步的部门工作流", color = Neon.Muted)
-    when {
-      loading -> {
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-          Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            LocalizedText("正在读取呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Neon.Purple, trackColor = Color.White.copy(alpha = 0.12f))
-          }
-        }
-      }
-      error != null -> {
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-          Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LocalizedText("读取失败", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText(error, color = Neon.Muted)
-            GlassButton("重试", onClick = onRetry)
-          }
-        }
-      }
-      items.isEmpty() -> {
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 22) {
-          Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            LocalizedText("还没有呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText("请先在管理后台（CMS）的「服务列表」中创建并启用服务。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-          }
-        }
-      }
-      else -> {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-          // Drive folders can be empty or shared; the CMS document ID uniquely identifies a service.
-          items(items, key = { it.serviceId }) { item ->
-            GlassCard(
-              Modifier.fillMaxWidth().clickable { onCall(item) },
-              cornerRadius = 20,
-            ) {
-              Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(54.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0x885E44FF), Color(0x223F2E78)))), contentAlignment = Alignment.Center) {
-                  Icon(Icons.Rounded.Call, contentDescription = null, tint = Color(0xFFD89BFF), modifier = Modifier.size(28.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                  Text(item.title, color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-                  LocalizedText(callingTypeLabel(item), color = Neon.Purple, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                  if (item.info.isBlank()) {
-                    LocalizedText("电话录音自动化", color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                  } else {
-                    Text(item.info, color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                  }
-                }
-                Icon(Icons.Rounded.Mic, contentDescription = null, tint = Neon.Purple, modifier = Modifier.size(24.dp))
-              }
-            }
-          }
-        }
-      }
-    }
+  Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    PageHeader("呼叫对象", onBack = onBack)
+    LocalizedText("请选择要记录并同步的部门工作流", color = VtaColors.Muted, style = MaterialTheme.typography.bodyMedium)
+    CallingTargetContent(items, loading, error, false, onRetry, onCall, Modifier.weight(1f))
   }
 }
 
 @Composable
-private fun AICallingPickerDialog(
+internal fun AICallingPickerDialog(
   reprocessing: Boolean = false,
   items: List<AICallingItem>,
   loading: Boolean,
@@ -1889,149 +1641,125 @@ private fun AICallingPickerDialog(
   onSelect: (AICallingItem) -> Unit,
 ) {
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28, opaque = reprocessing) {
-      Column(
-        Modifier.padding(22.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-      ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-          LocalizedText(if (reprocessing) "处理对象" else "呼叫对象", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-          TextButton(onClick = onDismiss) { LocalizedText("取消", color = Neon.Success) }
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
+      Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        PageHeader(if (reprocessing) "处理对象" else "呼叫对象") {
+          TextButton(onClick = onDismiss) { LocalizedText("取消") }
         }
-        LocalizedText(if (reprocessing) "选择后将使用已有转写文本重新执行 Skills。" else "请选择要记录并同步的部门工作流", color = Neon.Muted)
-        when {
-          loading -> {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-              LocalizedText("正在读取呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
-              LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Neon.Purple, trackColor = Color.White.copy(alpha = 0.12f))
-            }
-          }
-          error != null -> {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-              LocalizedText("读取失败", color = Neon.Text, fontWeight = FontWeight.Bold)
-              LocalizedText(error, color = Neon.Muted)
-              GlassButton("重试", onClick = onRetry)
-            }
-          }
-          items.isEmpty() -> {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-              LocalizedText(if (reprocessing) "没有可用的 Skills 处理对象" else "还没有呼叫对象", color = Neon.Text, fontWeight = FontWeight.Bold)
-              LocalizedText("请先在管理后台（CMS）的「服务列表」中创建并启用服务。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-          }
-          else -> {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.height(360.dp)) {
-              items(items, key = { it.serviceId }) { item ->
-                GlassCard(
-                  Modifier.fillMaxWidth().clickable { onSelect(item) },
-                  cornerRadius = 18,
-                ) {
-                  Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(50.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0x885E44FF), Color(0x223F2E78)))), contentAlignment = Alignment.Center) {
-                      Icon(Icons.Rounded.Call, contentDescription = null, tint = Color(0xFFD89BFF), modifier = Modifier.size(26.dp))
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                      Text(item.title, color = Neon.Text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
-                      LocalizedText(callingTypeLabel(item), color = Neon.Purple, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                      if (item.info.isBlank()) {
-                        LocalizedText("电话录音自动化", color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                      } else {
-                        Text(item.info, color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                      }
-                    }
-                    Icon(Icons.Rounded.Mic, contentDescription = null, tint = Neon.Purple, modifier = Modifier.size(22.dp))
-                  }
-                }
-              }
-            }
-          }
-        }
+        LocalizedText(if (reprocessing) "选择后将使用已有转写文本重新执行 Skills。" else "请选择要记录并同步的部门工作流",
+          color = VtaColors.Muted, style = MaterialTheme.typography.bodyMedium)
+        CallingTargetContent(items, loading, error, reprocessing, onRetry, onSelect, Modifier.heightIn(max = 344.dp))
       }
     }
   }
 }
 
 @Composable
-private fun AICallingCallScreen(
+private fun CallingTargetContent(
+  items: List<AICallingItem>, loading: Boolean, error: String?, reprocessing: Boolean,
+  onRetry: () -> Unit, onSelect: (AICallingItem) -> Unit, modifier: Modifier = Modifier,
+) {
+  Box(modifier.fillMaxWidth()) {
+    when {
+      loading -> Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LinearProgressIndicator(Modifier.fillMaxWidth(), color = VtaColors.Purple, trackColor = VtaColors.Stroke)
+        LocalizedText("正在读取呼叫对象", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+      }
+      error != null -> EmptyState("读取失败", error, Icons.Outlined.Call, action = { QuietButton("重试", onClick = onRetry) })
+      items.isEmpty() -> EmptyState(if (reprocessing) "没有可用的 Skills 处理对象" else "还没有呼叫对象",
+        "请先在管理后台（CMS）的「服务列表」中创建并启用服务。", Icons.Outlined.Call)
+      else -> LazyColumn(Modifier.fillMaxWidth()) {
+        items(items, key = { it.serviceId }) { item ->
+          Row(Modifier.fillMaxWidth().clickable { onSelect(item) }.heightIn(min = 64.dp).padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(38.dp).background(VtaColors.Panel, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+              Icon(Icons.Outlined.Call, contentDescription = null, tint = VtaColors.Purple, modifier = Modifier.size(19.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+              Text(item.title, color = VtaColors.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+              LocalizedText(callingTypeLabel(item), color = VtaColors.Purple, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+              if (item.info.isNotBlank()) Text(item.info, color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = VtaColors.Dim, modifier = Modifier.size(18.dp))
+          }
+          AppDivider()
+        }
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun AICallingCallScreen(
   item: AICallingItem?,
   recorderState: RecorderUiState,
   route: CallInputRoute,
   onRouteChange: (CallInputRoute) -> Unit,
   onHangUp: () -> Unit,
 ) {
-  Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-    Spacer(Modifier.height(42.dp))
-    Box(Modifier.size(132.dp).clip(CircleShape).background(Brush.radialGradient(listOf(Color(0xAA5E44FF), Color(0x33151827)))), contentAlignment = Alignment.Center) {
-      Icon(Icons.Rounded.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(58.dp))
+  Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp),
+    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+      LocalizedText("通话录音", color = VtaColors.Text, style = MaterialTheme.typography.titleLarge)
     }
-    Spacer(Modifier.height(22.dp))
-    if (item == null) {
-      LocalizedText("通话录音", color = Neon.Text, fontSize = 30.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-    } else {
-      Text(item.title, color = Neon.Text, fontSize = 30.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-    }
-    LocalizedText(if (recorderState.status == RecordingStatus.PAUSED) "已暂停" else "正在录音", color = Neon.Muted, modifier = Modifier.padding(top = 6.dp))
-    LocalizedText(formatElapsed(recorderState.elapsedMs), color = Neon.Text, fontSize = 54.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 28.dp))
-    LiveRecordingWaveform(
-      level = recorderState.inputLevel,
-      elapsedMs = recorderState.elapsedMs,
-      recording = recorderState.status == RecordingStatus.RECORDING,
-      paused = recorderState.status == RecordingStatus.PAUSED,
-    )
-    Spacer(Modifier.weight(1f))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      CallInputRoute.entries.forEach { option ->
-        GlassButton(option.label, modifier = Modifier.weight(1f), selected = route == option, onClick = { onRouteChange(option) })
+    BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+      val compact = maxHeight < 420.dp
+      val orbSize = (maxHeight - if (compact) 190.dp else 210.dp).coerceIn(60.dp, 270.dp)
+      Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
+        Image(painterResource(R.drawable.voice_orb), contentDescription = null,
+          modifier = Modifier.size(orbSize), contentScale = ContentScale.Fit)
+        if (item != null) Text(item.title, color = VtaColors.Text,
+          style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+          textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        RecordingMeter(recorderState, compact = compact)
       }
     }
-    Spacer(Modifier.height(18.dp))
-    Box(
-      Modifier
-        .size(82.dp)
-        .clip(CircleShape)
-        .background(Color(0xFFE23B56))
-        .clickable { onHangUp() },
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(Icons.Rounded.Stop, contentDescription = "挂断", tint = Color.White, modifier = Modifier.size(36.dp))
+    LocalizedText("音频设备", color = VtaColors.Muted, style = MaterialTheme.typography.labelMedium)
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+      verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      CallInputRoute.entries.forEach { option ->
+        QuietButton(option.label, selected = route == option, onClick = { onRouteChange(option) })
+      }
     }
-    Spacer(Modifier.height(24.dp))
+    Button(onClick = onHangUp, modifier = Modifier.padding(top = 8.dp).heightIn(min = 60.dp).widthIn(min = 144.dp), shape = CircleShape,
+      colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = VtaColors.Error, contentColor = Color(0xFF391820))) {
+      Icon(Icons.Outlined.CallEnd, contentDescription = null, modifier = Modifier.size(22.dp))
+      Spacer(Modifier.width(8.dp))
+      LocalizedText("挂断", style = MaterialTheme.typography.labelLarge)
+    }
   }
 }
 
 @Composable
-private fun AICallingSummaryScreen(
-  item: AICallingItem?,
-  recording: RecordingItem?,
-  onLater: () -> Unit,
-  onUpload: (RecordingItem) -> Unit,
+internal fun AICallingSummaryScreen(
+  item: AICallingItem?, recording: RecordingItem?, onLater: () -> Unit, onUpload: (RecordingItem) -> Unit,
 ) {
-  Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    LocalizedText("记录完成", color = Neon.Text, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.CenterHorizontally))
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26) {
-      Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(item?.title ?: "AI Calling", color = Neon.Text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        if (item?.info.isNullOrBlank()) {
-          LocalizedText("电话录音已保存，确认后将上传并触发自动化。", color = Neon.Muted)
-        } else {
-          Text(item.info, color = Neon.Muted)
-        }
-        LocalizedText("通话时长：${recording?.let { formatRecordingDuration(it.durationMs) } ?: "处理中"}", color = Neon.Text, fontWeight = FontWeight.Bold)
-        LocalizedText("音频文件：${recording?.let { "${formatRecordingSize(it.sizeBytes)} · ${it.name}" } ?: "正在写入本地文件"}", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        LocalizedText("服务ID：${item?.serviceId?.takeIf { it.isNotBlank() } ?: "-"}", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        LocalizedText("Drive 目录：${item?.aicallingId?.takeIf { it.isNotBlank() } ?: "-"}", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+  var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+  Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    PageHeader("记录完成")
+    AppPanel(Modifier.fillMaxWidth()) {
+      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(item?.title ?: "AI Calling", color = VtaColors.Text, style = MaterialTheme.typography.titleMedium)
+        if (item?.info.isNullOrBlank()) LocalizedText("电话录音已保存，确认后将上传并触发自动化。", color = VtaColors.Muted)
+        else Text(item.info, color = VtaColors.Muted)
+        AppDivider()
+        LocalizedText("通话时长：${recording?.let { formatRecordingDuration(it.durationMs) } ?: "处理中"}", color = VtaColors.Text)
+        LocalizedText("音频文件：${recording?.let { "${formatRecordingSize(it.sizeBytes)} · ${RecordingLists.displayName(it)}" } ?: "正在写入本地文件"}",
+          color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
       }
     }
-    Spacer(Modifier.weight(1f))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-      GlassButton("稍后处理", modifier = Modifier.weight(1f), onClick = onLater)
-      GradientPrimaryButton(
-        "确认并触发自动化",
-        modifier = Modifier.weight(1.45f),
-        icon = Icons.Rounded.CloudUpload,
-        enabled = recording != null,
-        onClick = { recording?.let(onUpload) },
-      )
+    TextButton(onClick = { detailsExpanded = !detailsExpanded }) { LocalizedText(if (detailsExpanded) "收起详细信息" else "查看详细信息") }
+    if (detailsExpanded) {
+      LocalizedText("服务ID：${item?.serviceId?.takeIf { it.isNotBlank() } ?: "-"}", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+      LocalizedText("Drive 目录：${item?.aicallingId?.takeIf { it.isNotBlank() } ?: "-"}", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      QuietButton("稍后处理", modifier = Modifier.weight(1f), onClick = onLater)
+      ActionButton("确认并触发自动化", modifier = Modifier.weight(1.45f), icon = Icons.Outlined.CloudUpload,
+        enabled = recording != null, onClick = { recording?.let(onUpload) })
     }
   }
 }
@@ -2040,7 +1768,7 @@ private fun AICallingSummaryScreen(
 private fun AICallingBlackoutOverlay() {
   Box(Modifier.fillMaxSize().background(Color.Black).clickable { }, contentAlignment = Alignment.Center) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      Icon(Icons.Rounded.Mic, contentDescription = null, tint = Color(0xFF303030), modifier = Modifier.size(42.dp))
+      Icon(Icons.Outlined.Mic, contentDescription = null, tint = Color(0xFF303030), modifier = Modifier.size(42.dp))
       LocalizedText("听筒模式运行中", color = Color(0xFF303030), fontWeight = FontWeight.Bold)
     }
   }
@@ -2097,69 +1825,52 @@ private fun RecordingListScreen(
   val uploaded = recordingFilter == RecordingListFilter.UPLOADED
   val selectableIds = visibleRecordings.map { it.id }
   val allSelected = selectableIds.isNotEmpty() && selectableIds.all { it in selected }
-  Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-      LocalizedText("录音列表", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-      GlassButton(if (selectionMode) "取消" else "返回", icon = Icons.AutoMirrored.Rounded.ArrowBack, onClick = {
-        if (selectionMode) onSelectionModeChange(false) else onBack()
-      })
+  Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    PageHeader("录音列表", onBack = { if (selectionMode) onSelectionModeChange(false) else onBack() }) {
+      if (!uploaded) TextButton(onClick = { onSelectionModeChange(!selectionMode) }) {
+        LocalizedText(if (selectionMode) "取消" else "选择")
+      }
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(Modifier.fillMaxWidth().clip(CircleShape).background(VtaColors.Glass).border(1.dp, VtaColors.GlassEdge, CircleShape).padding(4.dp),
+      horizontalArrangement = Arrangement.spacedBy(4.dp)) {
       RecordingListFilter.entries.forEach { tab ->
         val active = recordingFilter == tab
-        Row(
-          Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp))
-            .background(if (active) NeonPrimaryBrush else Brush.horizontalGradient(listOf(Neon.PanelSoft, Neon.PanelSoft)))
-            .selectable(selected = active, role = Role.Tab, onClick = { onFilterChange(tab) })
-            .padding(horizontal = 10.dp),
-          horizontalArrangement = Arrangement.Center,
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          LocalizedText(tab.label, color = Neon.Text, style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false))
+        Row(Modifier.weight(1f).heightIn(min = 48.dp).clip(CircleShape)
+          .background(if (active) Color(0xFF61466E) else Color.Transparent)
+          .selectable(selected = active, role = Role.Tab, onClick = { onFilterChange(tab) }).padding(horizontal = 8.dp),
+          horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+          LocalizedText(tab.label, color = if (active) VtaColors.Purple else VtaColors.Muted, style = MaterialTheme.typography.labelLarge,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
           Spacer(Modifier.width(6.dp))
-          Text((if (tab == RecordingListFilter.ORIGINAL) originalCount else uploadedCount).toString(),
-            color = Neon.Text.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
+          Text((if (tab == RecordingListFilter.ORIGINAL) originalCount else uploadedCount).toString(), color = VtaColors.Muted,
+            style = MaterialTheme.typography.labelSmall)
         }
       }
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-      LocalizedText(
-        if (uploaded) "合并上传显示一条，逐条上传分别显示。" else "仅显示原始录音，点击可查看详情。",
-        color = Neon.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
-      )
-      if (!uploaded) TextButton(onClick = { onSelectionModeChange(!selectionMode) }) {
-        LocalizedText(if (selectionMode) "取消" else "选择", color = Neon.Success)
-      }
-    }
+    LocalizedText(if (uploaded) "合并上传显示一条，逐条上传分别显示。" else "仅显示原始录音，点击可查看详情。",
+      color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
     if (selectionMode && !uploaded) {
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        LocalizedText("已选择 ${selected.size} 项", color = Neon.Text, fontWeight = FontWeight.Bold)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          GlassButton(if (allSelected) "取消全选" else "全选", enabled = selectableIds.isNotEmpty(), onClick = {
+      Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LocalizedText("已选择 ${selected.size} 项", color = VtaColors.Text, style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          QuietButton(if (allSelected) "取消全选" else "全选", enabled = selectableIds.isNotEmpty(), onClick = {
             selected.clear()
             if (!allSelected) selected.addAll(selectableIds)
           })
-          GlassButton("上传", icon = Icons.Rounded.Upload, enabled = selected.isNotEmpty(), onClick = onUploadSelected)
-          GlassButton("删除", icon = Icons.Rounded.Delete, enabled = selected.isNotEmpty(), onClick = onDeleteSelected)
+          ActionButton("上传", icon = Icons.Outlined.Upload, enabled = selected.isNotEmpty(), onClick = onUploadSelected)
+          QuietButton("删除", icon = Icons.Outlined.Delete, enabled = selected.isNotEmpty(), onClick = onDeleteSelected)
         }
       }
     }
     if (visibleRecordings.isEmpty()) {
-      Column(Modifier.padding(vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        LocalizedText(if (uploaded) "还没有上传成功的文件" else "没有录音文件", color = Neon.Text, fontWeight = FontWeight.Bold)
-        LocalizedText(if (uploaded) "录音上传成功后会显示在这里。" else "返回录音页开始录制。", color = Neon.Muted)
-      }
+      EmptyState(if (uploaded) "还没有上传成功的文件" else "没有录音文件",
+        if (uploaded) "录音上传成功后会显示在这里。" else "返回录音页开始录制。", icon = if (uploaded) Icons.Outlined.CloudUpload else Icons.Outlined.Mic)
     }
     LazyColumn(modifier = Modifier.weight(1f)) {
       items(visibleRecordings, key = { it.id }) { item ->
-        RecordingRow(
-          item = item, uploaded = uploaded, selectionMode = selectionMode,
-          selected = item.id in selected,
+        RecordingRow(item = item, uploaded = uploaded, selectionMode = selectionMode, selected = item.id in selected,
           onChecked = { checked -> if (checked && item.id !in selected) selected.add(item.id) else if (!checked) selected.remove(item.id) },
-          onOpen = { onOpenRecording(item) }, onDelete = { onDeleteRecording(item) },
-        )
+          onOpen = { onOpenRecording(item) }, onDelete = { onDeleteRecording(item) })
       }
     }
   }
@@ -2181,18 +1892,18 @@ private fun RecordingRow(
   onOpen: () -> Unit,
   onDelete: () -> Unit,
 ) {
-  Column(Modifier.fillMaxWidth().clickable { if (selectionMode) onChecked(!selected) else onOpen() }) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+  AppPanel(Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable { if (selectionMode) onChecked(!selected) else onOpen() }) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
       if (selectionMode) Checkbox(checked = selected, onCheckedChange = onChecked)
-      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text(RecordingLists.displayName(item), color = Neon.Text, style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(RecordingLists.displayName(item), color = VtaColors.Text, style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text("${formatRecordingDuration(item.durationMs)}  ·  ${formatRecordingSize(item.sizeBytes)}  ·  ${fileNameExtension(item.name).uppercase()}",
-          color = Neon.Muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (uploaded) {
-          LocalizedText(uploadMethodLabel(item), color = Neon.Success, style = MaterialTheme.typography.labelMedium)
+          LocalizedText(uploadMethodLabel(item), color = VtaColors.Success, style = MaterialTheme.typography.labelMedium)
           item.aicallingTitle?.takeIf { it.isNotBlank() }?.let {
-            Text(it, color = Neon.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(it, color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
           }
         } else {
           val state = when (item.uploadState) {
@@ -2203,44 +1914,47 @@ private fun RecordingRow(
             UploadState.LOCAL -> if (item.error != null) "上传失败" else "保存在本机"
           }
           LocalizedText(if (item.uploadState == UploadState.UPLOADING) "$state · ${item.uploadProgress}%" else state,
-            color = if (item.error != null) MaterialTheme.colorScheme.error else Neon.Muted, style = MaterialTheme.typography.labelMedium)
+            color = if (item.error != null) MaterialTheme.colorScheme.error else VtaColors.Muted, style = MaterialTheme.typography.labelMedium)
           item.error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
       }
       if (!selectionMode && !uploaded) IconButton(onClick = onDelete) {
-        Icon(Icons.Rounded.Delete, contentDescription = "删除".localized(LocalContext.current), tint = Neon.Muted, modifier = Modifier.size(22.dp))
+        Icon(Icons.Outlined.Delete, contentDescription = "删除".localized(LocalContext.current), tint = VtaColors.Muted, modifier = Modifier.size(22.dp))
       }
     }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Neon.Muted.copy(alpha = 0.15f)))
   }
 }
 
 @Composable
 private fun UploadedRecordingDialog(
-  item: RecordingItem,
-  submitting: Boolean,
-  onDismiss: () -> Unit,
-  onReprocess: () -> Unit,
+  item: RecordingItem, submitting: Boolean, onDismiss: () -> Unit, onReprocess: () -> Unit,
 ) {
   val uid = firebaseRepository.currentUid
   val statusFlow = remember(item.id, uid) { firebaseRepository.observeUploadedProcessing(item.id) }
   val status by statusFlow.collectAsState(initial = UploadedProcessingStatus())
+  UploadedRecordingDetails(item, status, submitting, onDismiss, onReprocess)
+}
+
+@Composable
+internal fun UploadedRecordingDetails(
+  item: RecordingItem, status: UploadedProcessingStatus, submitting: Boolean, onDismiss: () -> Unit, onReprocess: () -> Unit,
+) {
   val ready = status.canReprocess && status.state in listOf("success", "failed")
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26, opaque = true) {
-      Column(Modifier.padding(22.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        LocalizedText("上传详情", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text(RecordingLists.displayName(item), color = Neon.Text, style = MaterialTheme.typography.titleMedium)
-        LocalizedText(uploadMethodLabel(item), color = Neon.Success)
-        Text("${formatRecordingDuration(item.durationMs)}  ·  ${formatRecordingSize(item.sizeBytes)}", color = Neon.Muted)
-        LocalizedText("上传时间", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
-        Text(formatRecordingCreatedAt(item.uploadedAt ?: item.createdAt), color = Neon.Text)
-        if (item.sourceRecordingIds.size > 1) {
-          LocalizedText("合并录音数量", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
-          Text(item.sourceRecordingIds.size.toString(), color = Neon.Text)
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
+      Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        PageHeader("上传详情", compact = true)
+        Text(RecordingLists.displayName(item), color = VtaColors.Text, style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+          LocalizedText(uploadMethodLabel(item), color = VtaColors.Purple, style = MaterialTheme.typography.labelMedium)
+          Text("${formatRecordingDuration(item.durationMs)} · ${formatRecordingSize(item.sizeBytes)}", color = VtaColors.Muted,
+            style = MaterialTheme.typography.bodySmall)
         }
-        LocalizedText("处理对象", color = Neon.Muted, style = MaterialTheme.typography.labelMedium)
-        Text(status.targetTitle.ifBlank { item.aicallingTitle.orEmpty() }.ifBlank { "—" }, color = Neon.Text)
+        AppDivider()
+        DetailValue("上传时间", formatRecordingCreatedAt(item.uploadedAt ?: item.createdAt))
+        if (item.sourceRecordingIds.size > 1) DetailValue("合并录音数量", item.sourceRecordingIds.size.toString())
+        DetailValue("处理对象", status.targetTitle.ifBlank { item.aicallingTitle.orEmpty() }.ifBlank { "—" })
+        AppDivider()
         val stateText = when {
           status.loading -> "正在读取处理状态"
           status.error != null && status.state.isBlank() -> "处理状态读取失败"
@@ -2252,17 +1966,25 @@ private fun UploadedRecordingDialog(
           status.state == "failed" -> "处理失败"
           else -> "等待服务器处理"
         }
-        LocalizedText(stateText, color = Neon.Text, fontWeight = FontWeight.SemiBold)
-        if (status.busy || status.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Neon.Purple)
-        status.error?.let { LocalizedText(it, color = MaterialTheme.colorScheme.error) }
+        LocalizedText(stateText, color = if (status.error != null) VtaColors.Error else VtaColors.Text, style = MaterialTheme.typography.titleSmall)
+        if (status.busy || status.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = VtaColors.Purple)
+        status.error?.let { LocalizedText(it, color = VtaColors.Error, style = MaterialTheme.typography.bodySmall) }
         if (!status.loading && !status.hasTranscript && status.error == null) {
-          LocalizedText("转写文本尚未就绪，暂时无法重新处理", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
+          LocalizedText("转写文本尚未就绪，暂时无法重新处理", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
-        LocalizedText("使用已有转写文本，不重新上传音频或进行语音识别。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        GradientPrimaryButton("重新选择处理对象", enabled = ready && !submitting, onClick = onReprocess)
-        GlassButton("关闭", modifier = Modifier.fillMaxWidth(), enabled = !submitting, onClick = onDismiss)
+        LocalizedText("使用已有转写文本，不重新上传音频或进行语音识别。", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        ActionButton("重新选择处理对象", modifier = Modifier.fillMaxWidth(), enabled = ready && !submitting, onClick = onReprocess)
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), enabled = !submitting) { LocalizedText("关闭") }
       }
     }
+  }
+}
+
+@Composable
+private fun DetailValue(label: String, value: String) {
+  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+    LocalizedText(label, color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(0.8f))
+    Text(value, color = VtaColors.Text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1.2f), textAlign = TextAlign.End)
   }
 }
 
@@ -2359,107 +2081,55 @@ private fun RecordingDetailDialog(
   }
 
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 26) {
-      Column(
-        Modifier.padding(22.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-          LocalizedText("录音详情", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-          GlassButton("Share", icon = Icons.Rounded.Share, enabled = playable, onClick = { shareRecording() })
-        }
-        Text(RecordingLists.displayName(item), color = Neon.Muted, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-          OutlinedTextField(
-            value = editableName,
-            onValueChange = { editableName = it },
-            label = { LocalizedText("文件名") },
-            modifier = Modifier.weight(1f),
-          )
-          if (fileExtension.isNotBlank()) LocalizedText(".$fileExtension", color = Neon.Text, fontWeight = FontWeight.Bold)
-        }
-        GradientPrimaryButton(
-          "保存名称",
-          onClick = { onRename(fileNameWithExtension(editableName, fileExtension)) },
-          enabled = editableName.trim().isNotBlank(),
-        )
-
-        LocalizedText(
-          "${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · ${fileNameExtension(item.name).uppercase()}",
-          color = Neon.Muted,
-        )
-        LocalizedText(
-          "录音作成日:${formatRecordingCreatedAt(item.createdAt)}",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-        Slider(
-          value = positionMs.coerceIn(0f, durationMs),
-          onValueChange = { positionMs = it },
-          onValueChangeFinished = { player?.seekTo(positionMs.toInt()) },
-          valueRange = 0f..durationMs,
-          enabled = playable,
-        )
-        LocalizedText(
-          "${formatRecordingDuration(positionMs.toLong())} / ${formatRecordingDuration(item.durationMs)}",
-          color = Neon.Muted,
-          style = MaterialTheme.typography.bodySmall,
-        )
-
-        Row(
-          Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          GradientPrimaryButton(
-            if (playing) "暂停" else "播放",
-            icon = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-            modifier = Modifier.weight(1.05f),
-            onClick = {
-              val mp = ensurePlayer()
-              if (mp != null) {
-                if (playing) {
-                  mp.pause()
-                  playing = false
-                } else {
-                  if (positionMs >= durationMs - 250f) {
-                    mp.seekTo(0)
-                    positionMs = 0f
-                  } else {
-                    mp.seekTo(positionMs.toInt())
-                  }
-                  applySpeed(speed)
-                  mp.start()
-                  playing = true
-                }
-              }
-            },
-            enabled = playable,
-          )
-          Row(
-            Modifier
-              .weight(1.55f)
-              .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            PlaybackSpeeds.forEach { value ->
-              GlassButton(
-                "${value}x",
-                selected = speed == value,
-                enabled = playable,
-                onClick = { applySpeed(value) },
-              )
-            }
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
+      Column(Modifier.padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        PageHeader("录音详情", compact = true) {
+          IconButton(onClick = ::shareRecording, enabled = playable) {
+            Icon(Icons.Outlined.Share, contentDescription = "分享".localized(context), modifier = Modifier.size(21.dp))
           }
         }
-        if (!playable) {
-          LocalizedText("录音文件不存在", color = MaterialTheme.colorScheme.error)
+        Text(RecordingLists.displayName(item), color = VtaColors.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${formatRecordingSize(item.sizeBytes)} · ${formatRecordingDuration(item.durationMs)} · ${fileExtension.uppercase()}",
+          color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        LocalizedText("录音作成日:${formatRecordingCreatedAt(item.createdAt)}", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        Slider(value = positionMs.coerceIn(0f, durationMs), onValueChange = { positionMs = it },
+          onValueChangeFinished = { player?.seekTo(positionMs.toInt()) }, valueRange = 0f..durationMs, enabled = playable)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+          Text(formatRecordingDuration(positionMs.toLong()), color = VtaColors.Muted, style = MaterialTheme.typography.labelSmall)
+          Text(formatRecordingDuration(item.durationMs), color = VtaColors.Muted, style = MaterialTheme.typography.labelSmall)
         }
-        Spacer(Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          GlassButton("删除", icon = Icons.Rounded.Delete, modifier = Modifier.weight(1f), onClick = onDelete)
-          GlassButton("关闭", modifier = Modifier.weight(1f), onClick = onDismiss)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+          ActionButton(if (playing) "暂停" else "播放", icon = if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+            enabled = playable, onClick = {
+              val mediaPlayer = ensurePlayer() ?: return@ActionButton
+              if (playing) {
+                mediaPlayer.pause()
+                playing = false
+              } else {
+                if (positionMs >= durationMs - 250f) positionMs = 0f
+                mediaPlayer.seekTo(positionMs.toInt())
+                applySpeed(speed)
+                mediaPlayer.start()
+                playing = true
+              }
+            })
+          Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PlaybackSpeeds.forEach { option -> QuietButton("${option}x", selected = speed == option, enabled = playable, onClick = { applySpeed(option) }) }
+          }
+        }
+        if (!playable) LocalizedText("录音文件不存在", color = VtaColors.Error, style = MaterialTheme.typography.bodySmall)
+        AppDivider()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+          OutlinedTextField(value = editableName, onValueChange = { editableName = it }, label = { LocalizedText("文件名") },
+            modifier = Modifier.weight(1f), singleLine = true, textStyle = MaterialTheme.typography.bodyMedium)
+          if (fileExtension.isNotBlank()) Text(".$fileExtension", color = VtaColors.Muted, style = MaterialTheme.typography.labelMedium)
+        }
+        TextButton(onClick = { onRename(fileNameWithExtension(editableName, fileExtension)) }, enabled = editableName.isNotBlank()) {
+          LocalizedText("保存名称")
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+          TextButton(onClick = onDelete) { LocalizedText("删除", color = VtaColors.Error) }
+          QuietButton("关闭", onClick = onDismiss)
         }
       }
     }
@@ -2501,44 +2171,28 @@ private fun deleteLocalRecordingFile(item: RecordingItem) {
 }
 
 @Composable
-private fun UploadModeChoiceDialog(
-  selectedCount: Int,
-  onDismiss: () -> Unit,
-  onSelect: (UploadProcessMode) -> Unit,
-) {
+internal fun UploadModeChoiceDialog(selectedCount: Int, onDismiss: () -> Unit, onSelect: (UploadProcessMode) -> Unit) {
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28) {
-      Column(
-        Modifier.padding(26.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-      ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          Icon(Icons.Rounded.CloudUpload, contentDescription = null, tint = Color(0xFFD07CFF), modifier = Modifier.size(30.dp))
-          LocalizedText("上传方式", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        }
-        LocalizedText("已选择 $selectedCount 个文件", color = Neon.Muted)
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 16) {
-          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LocalizedText("合并上传", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText("把所选录音合并为一个音频文件后上传。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-            GradientPrimaryButton("合并上传", icon = Icons.Rounded.CloudUpload, onClick = { onSelect(UploadProcessMode.MERGED) })
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
+      Column(Modifier.padding(18.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PageHeader("上传方式", compact = true)
+        LocalizedText("已选择 $selectedCount 个文件", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        AppPanel(Modifier.fillMaxWidth(), cornerRadius = 14) {
+          Column {
+            SettingsRow("合并上传", "把所选录音合并为一个音频文件后上传。", Icons.Outlined.CloudUpload, onClick = { onSelect(UploadProcessMode.MERGED) })
+            AppDivider(Modifier.padding(horizontal = 16.dp))
+            SettingsRow("逐条上传", "每个录音单独处理并上传，保留独立文件。", Icons.Outlined.Upload, onClick = { onSelect(UploadProcessMode.SEPARATE) })
           }
         }
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 16) {
-          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LocalizedText("逐条上传", color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText("每个录音单独处理并上传，保留独立文件。", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-            GradientPrimaryButton("逐条上传", icon = Icons.Rounded.Upload, onClick = { onSelect(UploadProcessMode.SEPARATE) })
-          }
-        }
-        GlassButton("取消", modifier = Modifier.fillMaxWidth(), onClick = onDismiss)
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { LocalizedText("取消") }
       }
     }
   }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UploadDialog(
+internal fun UploadDialog(
   selectedIds: List<String>,
   recordings: List<RecordingItem>,
   outputFormat: UploadOutputFormat,
@@ -2550,25 +2204,22 @@ private fun UploadDialog(
   var speed by remember { mutableFloatStateOf(1.0f) }
   var language by remember { mutableStateOf(ReaderLanguage.ZH) }
   Dialog(onDismissRequest = onDismiss) {
-    GlassCard(Modifier.fillMaxWidth(), cornerRadius = 28) {
+    AppPanel(Modifier.fillMaxWidth(), cornerRadius = 30, opaque = true) {
       Column(
-        Modifier.padding(26.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        Modifier.padding(20.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-          Icon(Icons.Rounded.Upload, contentDescription = null, tint = Color(0xFFD07CFF), modifier = Modifier.size(30.dp))
-          LocalizedText(if (mode == UploadProcessMode.MERGED) "合并上传" else "逐条上传", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        }
-        LocalizedText("已选择 ${ordered.size} 个文件", color = Neon.Muted)
+        PageHeader(if (mode == UploadProcessMode.MERGED) "合并上传" else "逐条上传", compact = true)
+        LocalizedText("已选择 ${ordered.size} 个文件", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
 
         ordered.forEachIndexed { index, id ->
           val item = recordings.find { it.id == id }
-          GlassCard(Modifier.fillMaxWidth(), cornerRadius = 14) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+          Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
               Icon(
-                Icons.Rounded.MoreHoriz,
-                contentDescription = null,
-                tint = Neon.Muted,
+                Icons.Outlined.MoreHoriz,
+                contentDescription = "长按调整顺序".localized(LocalContext.current),
+                tint = VtaColors.Muted,
                 modifier =
                   Modifier
                     .padding(end = 8.dp)
@@ -2591,45 +2242,40 @@ private fun UploadDialog(
                         },
                       )
                     }
-                    .size(28.dp),
+                    .size(48.dp).padding(14.dp),
               )
-              LocalizedText(
-                item?.name ?: id,
-                color = Neon.Text,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-              )
+              Text(item?.let(RecordingLists::displayName) ?: id, color = VtaColors.Text, modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            AppDivider()
           }
         }
 
-        LocalizedText("上传语言", color = Neon.Muted)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        SectionLabel("上传语言")
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp)) {
           ReaderLanguage.entries.forEach { option ->
-            GlassButton(option.label, selected = language == option, onClick = { language = option })
+            QuietButton(option.label, selected = language == option, onClick = { language = option })
           }
         }
 
-        LocalizedText("音频倍速（会缩短时长）", color = Neon.Muted)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        SectionLabel("音频倍速（会缩短时长）")
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp)) {
           UploadSpeeds.forEach { option ->
-            GlassButton("${option}x", selected = speed == option, onClick = { speed = option })
+            QuietButton("${option}x", selected = speed == option, onClick = { speed = option })
           }
         }
 
-        LocalizedText("输出格式", color = Neon.Muted)
-        GlassCard(Modifier.fillMaxWidth(), cornerRadius = 14) {
-          Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            LocalizedText(outputFormat.shortLabel(), color = Neon.Text, fontWeight = FontWeight.Bold)
-            LocalizedText("在设置页修改", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-          }
-        }
+        AppDivider()
+        DetailValue("输出格式", outputFormat.shortLabel())
+        LocalizedText("在设置页修改", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-          GlassButton("取消", modifier = Modifier.weight(1f), onClick = onDismiss)
-          GradientPrimaryButton(
+          QuietButton("取消", modifier = Modifier.weight(1f), onClick = onDismiss)
+          ActionButton(
             "上传",
-            icon = Icons.Rounded.CloudUpload,
+            icon = Icons.Outlined.CloudUpload,
             modifier = Modifier.weight(1f),
             onClick = { onStart(ordered.toList(), outputFormat, speed, language) },
           )
@@ -2647,121 +2293,116 @@ private fun <T> MutableList<T>.swap(from: Int, to: Int) {
 @Composable
 private fun NotesScreen(
   draft: String,
+  authUid: String?,
   readerFontSizeSp: Float,
   onAuthChanged: (AuthUiState) -> Unit,
   onMessage: (String) -> Unit,
 ) {
   val scope = rememberCoroutineScope()
   var body by remember(draft) { mutableStateOf(draft) }
+  var editorOpen by rememberSaveable { mutableStateOf(false) }
   var titleDialog by remember { mutableStateOf(false) }
   var readerNote by remember { mutableStateOf<NoteItem?>(null) }
-  var savedNotesPage by remember { mutableStateOf(false) }
-  var loginForSave by remember { mutableStateOf<String?>(null) }
+  var loginForSave by remember { mutableStateOf<Pair<String, String>?>(null) }
+  var loginForList by remember { mutableStateOf(false) }
+  var saving by remember { mutableStateOf(false) }
 
-  fun saveNote(title: String) {
+  fun saveNote(title: String, text: String) {
+    if (saving) return
+    if (firebaseRepository.currentUid == null) {
+      loginForSave = title to text
+      return
+    }
+    saving = true
     scope.launch {
-      if (firebaseRepository.currentUid == null) {
-        loginForSave = title
-        return@launch
-      }
-      val note = NoteItem(UUID.randomUUID().toString(), title, body, System.currentTimeMillis())
+      val note = NoteItem(UUID.randomUUID().toString(), title, text, System.currentTimeMillis())
       runCatching { firebaseRepository.saveNote(note) }
         .onSuccess {
           body = ""
           onAuthChanged(firebaseRepository.refreshAuthState())
+          editorOpen = false
         }
         .onFailure { onMessage(it.message ?: "保存失败") }
+      saving = false
     }
   }
 
-  readerNote?.let { note ->
-    ReaderScreen(title = note.title, text = note.body, initialFontSizeSp = readerFontSizeSp, onBack = { readerNote = null })
-    return
+  BackHandler(readerNote != null || editorOpen) {
+    if (readerNote != null) readerNote = null else editorOpen = false
   }
-
-  if (savedNotesPage) {
-    SavedNotesScreen(
-      onBack = { savedNotesPage = false },
-      onOpen = { readerNote = it },
-      onMessage = onMessage,
-    )
-    return
-  }
-
-  Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-      GradientPrimaryButton("保存", icon = Icons.Rounded.Save, enabled = body.isNotBlank(), onClick = { titleDialog = true })
-      GlassButton("已保存笔记", icon = Icons.Rounded.Description, onClick = { savedNotesPage = true })
+  val selectedNote = readerNote
+  when {
+    selectedNote != null -> ReaderScreen(title = selectedNote.title, text = selectedNote.body,
+      initialFontSizeSp = readerFontSizeSp, onBack = { readerNote = null })
+    editorOpen -> {
+      Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        PageHeader("新增笔记", onBack = { editorOpen = false }) {
+          ActionButton(if (saving) "正在保存…" else "保存", enabled = body.isNotBlank() && !saving, onClick = { titleDialog = true })
+        }
+        TextField(
+          value = body,
+          onValueChange = { body = it; appStore.saveDraft(it) },
+          modifier = Modifier.fillMaxWidth().weight(1f),
+          label = { LocalizedText("笔记内容") },
+          textStyle = MaterialTheme.typography.bodyLarge,
+          shape = RoundedCornerShape(26.dp),
+          colors = TextFieldDefaults.colors(focusedContainerColor = VtaColors.Glass, unfocusedContainerColor = VtaColors.Glass,
+            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+        )
+        if (body.isNotBlank()) LocalizedText("草稿已保存在本机", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+      }
     }
-    GlassCard(Modifier.fillMaxWidth().weight(1f), cornerRadius = 22) {
-      OutlinedTextField(
-        value = body,
-        onValueChange = {
-          body = it
-          appStore.saveDraft(it)
-        },
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        label = { LocalizedText("笔记内容") },
-      )
-    }
+    else -> SavedNotesScreen(authUid = authUid, onNewNote = { editorOpen = true }, onOpen = { readerNote = it }, onSignIn = { loginForList = true })
   }
 
   if (titleDialog) {
-    SaveNoteDialog(
-      onDismiss = { titleDialog = false },
-      onSave = { title ->
-        titleDialog = false
-        saveNote(title)
-      },
-    )
+    SaveNoteDialog(onDismiss = { titleDialog = false }, onSave = { title ->
+      titleDialog = false
+      saveNote(title, body)
+    })
   }
-
-  loginForSave?.let { pendingTitle ->
-    LoginDialog(
-      onSignedIn = {
-        onAuthChanged(it)
-        loginForSave = null
-        saveNote(pendingTitle)
-      },
-      onDismiss = { loginForSave = null },
-    )
+  if (loginForList) LoginDialog(onSignedIn = { onAuthChanged(it); loginForList = false }, onDismiss = { loginForList = false })
+  loginForSave?.let { (pendingTitle, pendingBody) ->
+    LoginDialog(onSignedIn = {
+      onAuthChanged(it)
+      loginForSave = null
+      saveNote(pendingTitle, pendingBody)
+    }, onDismiss = { loginForSave = null })
   }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SavedNotesScreen(
-  onBack: () -> Unit,
+  authUid: String?,
+  onNewNote: () -> Unit,
   onOpen: (NoteItem) -> Unit,
-  onMessage: (String) -> Unit,
+  onSignIn: () -> Unit,
 ) {
   val scope = rememberCoroutineScope()
-  var notes by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
-  var hasMore by remember { mutableStateOf(true) }
-  var isLoading by remember { mutableStateOf(false) }
-  var isRefreshing by remember { mutableStateOf(false) }
-  var loadedOnce by remember { mutableStateOf(false) }
-  var loadFailed by remember { mutableStateOf(false) }
+  var notes by remember(authUid) { mutableStateOf<List<NoteItem>>(emptyList()) }
+  var hasMore by remember(authUid) { mutableStateOf(true) }
+  var isLoading by remember(authUid) { mutableStateOf(false) }
+  var isRefreshing by remember(authUid) { mutableStateOf(false) }
+  var loadedOnce by remember(authUid) { mutableStateOf(false) }
+  var loadError by remember(authUid) { mutableStateOf<String?>(null) }
 
   suspend fun loadPage(reset: Boolean) {
-    if (isLoading) return
+    if (authUid == null || isLoading) return
     isLoading = true
     runCatching { firebaseRepository.loadNotesPage(reset = reset) }
       .onSuccess { page ->
         notes = if (reset) page.notes else (notes + page.notes).distinctBy { it.id }
         hasMore = page.hasMore
         loadedOnce = true
-        loadFailed = false
+        loadError = null
       }
-      .onFailure {
-        loadFailed = true
-        onMessage(it.message ?: "笔记读取失败")
-      }
+      .onFailure { loadError = it.message ?: "笔记读取失败" }
     isLoading = false
   }
 
   fun refresh() {
-    if (isRefreshing) return
+    if (authUid == null || isRefreshing || isLoading) return
     scope.launch {
       isRefreshing = true
       loadPage(true)
@@ -2769,69 +2410,60 @@ private fun SavedNotesScreen(
     }
   }
 
-  // 只有打开这个页面时才读第一页；每次 5 条。
-  LaunchedEffect(Unit) {
-    loadPage(true)
-  }
+  // Reuse the existing five-item pager; opening the notes tab is now the list entry.
+  LaunchedEffect(authUid) { loadPage(true) }
 
-  Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-      LocalizedText("已保存笔记", color = Neon.Text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-      GlassButton("返回", icon = Icons.AutoMirrored.Rounded.ArrowBack, onClick = onBack)
+  Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    PageHeader("已保存笔记") {
+      ActionButton("新增笔记", icon = Icons.Outlined.Add, onClick = onNewNote)
     }
-    PullToRefreshBox(
-      isRefreshing = isRefreshing,
-      onRefresh = ::refresh,
-      modifier = Modifier.weight(1f),
-    ) {
-      LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!loadedOnce && isLoading) {
-          item {
-            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
-              LocalizedText("加载中…", color = Neon.Muted, modifier = Modifier.padding(16.dp))
+    if (authUid == null) {
+      EmptyState("登录后查看笔记", "也可以先新增笔记，内容会保存在本机草稿。", action = {
+        QuietButton("登录", onClick = onSignIn)
+      })
+    } else {
+      PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = ::refresh, modifier = Modifier.weight(1f)) {
+        LazyColumn(Modifier.fillMaxSize()) {
+          if (isLoading && !loadedOnce) item {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 12.dp), color = VtaColors.Purple)
+            LocalizedText("加载中…", color = VtaColors.Muted, modifier = Modifier.padding(top = 12.dp))
+          }
+          if (loadedOnce && notes.isEmpty() && loadError == null) item {
+            EmptyState("没有已保存笔记", "点击右上角新增笔记。")
+          }
+          loadError?.let { error ->
+            item {
+              EmptyState("笔记读取失败", error, action = { QuietButton("重试", onClick = { scope.launch { loadPage(true) } }) })
             }
           }
-        }
-        if (loadedOnce && notes.isEmpty() && !loadFailed) {
-          item {
-            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
-              LocalizedText("没有已保存笔记", color = Neon.Muted, modifier = Modifier.padding(16.dp))
+          items(notes, key = { it.id }) { note -> SavedNoteRow(note, onOpen = { onOpen(note) }) }
+          if (loadedOnce && hasMore && (notes.isNotEmpty() || loadError == null)) item {
+            TextButton(onClick = { scope.launch { loadPage(false) } }, modifier = Modifier.fillMaxWidth(), enabled = !isLoading) {
+              LocalizedText(if (isLoading) "加载中…" else "加载更多")
             }
-          }
-        }
-        if (loadFailed && notes.isEmpty() && !isLoading) {
-          item {
-            GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
-              Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                LocalizedText("笔记读取失败", color = MaterialTheme.colorScheme.error)
-                GlassButton("重试", onClick = { scope.launch { loadPage(true) } })
-              }
-            }
-          }
-        }
-        items(notes, key = { it.id }) { note ->
-          GlassCard(Modifier.fillMaxWidth().clickable { onOpen(note) }, cornerRadius = 18) {
-            Column(Modifier.padding(12.dp)) {
-              Text(note.title, color = Neon.Text, fontWeight = FontWeight.Bold)
-              Text(note.body.take(160), color = Neon.Muted)
-            }
-          }
-        }
-        if (loadedOnce && hasMore && !(loadFailed && notes.isEmpty())) {
-          item {
-            GlassButton(
-              if (isLoading) "加载中…" else "加载更多",
-              modifier = Modifier.fillMaxWidth(),
-              enabled = !isLoading,
-              onClick = { scope.launch { loadPage(false) } },
-            )
-          }
-        } else if (notes.isNotEmpty()) {
-          item {
-            LocalizedText("没有更多笔记", color = Neon.Muted, modifier = Modifier.padding(12.dp))
+          } else if (notes.isNotEmpty() && loadError == null) item {
+            LocalizedText("没有更多笔记", color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 14.dp))
           }
         }
       }
+    }
+  }
+}
+
+@Composable
+internal fun SavedNoteRow(note: NoteItem, onOpen: () -> Unit) {
+  AppPanel(Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable(onClick = onOpen)) {
+    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        GlassIcon(Icons.Outlined.Description, tint = VtaColors.Purple)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+          Text(note.title, color = VtaColors.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          if (note.updatedAt > 0L) Text(formatRecordingCreatedAt(note.updatedAt), color = VtaColors.Muted, style = MaterialTheme.typography.bodySmall)
+        }
+        Icon(Icons.Outlined.ArrowOutward, contentDescription = null, tint = VtaColors.Muted, modifier = Modifier.size(18.dp))
+      }
+      val preview = remember(note.body) { note.body.replace(Regex("\\s+"), " ").trim() }
+      Text(preview, color = VtaColors.Muted, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
   }
 }
@@ -2842,14 +2474,15 @@ private fun SaveNoteDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { LocalizedText("保存笔记") },
-    text = { OutlinedTextField(title, { title = it }, label = { LocalizedText("标题") }) },
+    text = { OutlinedTextField(title, { title = it }, label = { LocalizedText("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
     confirmButton = { Button(onClick = { onSave(title.ifBlank { "未命名笔记" }) }) { LocalizedText("保存") } },
     dismissButton = { TextButton(onClick = onDismiss) { LocalizedText("取消") } },
   )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ReaderScreen(title: String, text: String, initialFontSizeSp: Float, onBack: () -> Unit) {
+internal fun ReaderScreen(title: String, text: String, initialFontSizeSp: Float, onBack: () -> Unit) {
   val context = LocalContext.current
   var language by remember {
     mutableStateOf(
@@ -2920,108 +2553,62 @@ private fun ReaderScreen(title: String, text: String, initialFontSizeSp: Float, 
     }
   }
 
-  Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        LocalizedText("朗读", style = MaterialTheme.typography.labelMedium, color = Neon.Purple)
-        Text(title, color = Neon.Text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-      }
-      GlassButton("返回", icon = Icons.AutoMirrored.Rounded.ArrowBack, onClick = onBack)
-    }
-
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+  Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    PageHeader("朗读", onBack = onBack)
+    Text(title, color = VtaColors.Text, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Box {
-        GlassButton("语言：${language.label}", icon = Icons.Rounded.ExpandMore, onClick = { languageMenuExpanded = true })
+        QuietButton("语言：${language.label}", icon = Icons.Outlined.ExpandMore, onClick = { languageMenuExpanded = true })
         DropdownMenu(expanded = languageMenuExpanded, onDismissRequest = { languageMenuExpanded = false }) {
           ReaderLanguage.entries.forEach { option ->
-            DropdownMenuItem(
-              text = { LocalizedText(option.label) },
-              onClick = {
-                language = option
-                languageMenuExpanded = false
-              },
-            )
+            DropdownMenuItem(text = { LocalizedText(option.label) }, onClick = {
+              language = option
+              languageMenuExpanded = false
+            })
           }
         }
       }
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        GlassButton("-", onClick = {
+      Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        QuietButton("−", modifier = Modifier.widthIn(min = 48.dp), onClick = {
           fontSizeSp = (fontSizeSp - 2f).coerceAtLeast(16f)
           appStore.saveReaderFontSize(fontSizeSp)
         })
-        LocalizedText("${fontSizeSp.toInt()}sp", color = Neon.Muted, style = MaterialTheme.typography.bodySmall)
-        GlassButton("+", onClick = {
+        Text("${fontSizeSp.toInt()}sp", color = VtaColors.Muted, style = MaterialTheme.typography.labelMedium)
+        QuietButton("+", modifier = Modifier.widthIn(min = 48.dp), onClick = {
           fontSizeSp = (fontSizeSp + 2f).coerceAtMost(34f)
           appStore.saveReaderFontSize(fontSizeSp)
         })
       }
     }
-
-    GlassCard(Modifier.fillMaxWidth().weight(1f), cornerRadius = 22) {
-      BasicText(
-        text = highlightedText,
-        modifier =
-          Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .pointerInput(tokens) {
-              detectTapGestures(
-                onDoubleTap = { offset ->
-                  val charOffset = textLayout?.getOffsetForPosition(offset) ?: return@detectTapGestures
-                  readingTokenAt(tokens, charOffset)?.let { token -> requestSpeak(token.start) }
-                },
-              )
-            }
-            .padding(18.dp),
-        style =
-          TextStyle(
-            color = Neon.Text,
-            fontSize = fontSizeSp.sp,
-            lineHeight = (fontSizeSp + 12f).sp,
-            textAlign = TextAlign.Start,
-          ),
-        onTextLayout = { textLayout = it },
-      )
+    AppPanel(Modifier.fillMaxWidth().weight(1f)) {
+      BasicText(text = highlightedText,
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+          .pointerInput(tokens) {
+            detectTapGestures(onDoubleTap = { offset ->
+              val charOffset = textLayout?.getOffsetForPosition(offset) ?: return@detectTapGestures
+              readingTokenAt(tokens, charOffset)?.let { token -> requestSpeak(token.start) }
+            })
+          }.padding(16.dp),
+        style = TextStyle(color = VtaColors.Text, fontSize = fontSizeSp.sp, lineHeight = (fontSizeSp + 12f).sp, textAlign = TextAlign.Start),
+        onTextLayout = { textLayout = it })
     }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        GradientPrimaryButton(if (paused) "继续" else if (playing) "重播" else "播放", icon = Icons.Rounded.PlayArrow, onClick = { requestSpeak() })
-        GlassButton("暂停", icon = Icons.Rounded.Pause, onClick = {
-          context.startService(Intent(context, ReaderService::class.java).setAction(ReaderService.ACTION_PAUSE))
-        })
-        GlassButton("停止", icon = Icons.Rounded.Stop, onClick = {
-          context.startService(Intent(context, ReaderService::class.java).setAction(ReaderService.ACTION_STOP))
-        })
-      }
-      GlassCard(Modifier.fillMaxWidth(), cornerRadius = 18) {
-        Row(
-          Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          GlassButton(
-            "-",
-            modifier = Modifier.weight(1f),
-            enabled = steppedReaderSpeed(speed) > MIN_READER_SPEED,
-            onClick = { updateReaderSpeed(speed - READER_SPEED_STEP) },
-          )
-          LocalizedText(
-            formatReaderSpeed(speed),
-            color = Neon.Text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1.2f),
-          )
-          GlassButton(
-            "+",
-            modifier = Modifier.weight(1f),
-            enabled = steppedReaderSpeed(speed) < MAX_READER_SPEED,
-            onClick = { updateReaderSpeed(speed + READER_SPEED_STEP) },
-          )
-        }
-      }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      LocalizedText("语速", color = VtaColors.Muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+      QuietButton("−", modifier = Modifier.widthIn(min = 48.dp), enabled = steppedReaderSpeed(speed) > MIN_READER_SPEED,
+        onClick = { updateReaderSpeed(speed - READER_SPEED_STEP) })
+      Text(formatReaderSpeed(speed), color = VtaColors.Text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.widthIn(min = 48.dp), textAlign = TextAlign.Center)
+      QuietButton("+", modifier = Modifier.widthIn(min = 48.dp), enabled = steppedReaderSpeed(speed) < MAX_READER_SPEED,
+        onClick = { updateReaderSpeed(speed + READER_SPEED_STEP) })
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+      ActionButton(if (paused) "继续" else if (playing) "重播" else "播放", modifier = Modifier.weight(1.2f),
+        onClick = { requestSpeak() })
+      QuietButton("暂停", modifier = Modifier.weight(1f), onClick = {
+        context.startService(Intent(context, ReaderService::class.java).setAction(ReaderService.ACTION_PAUSE))
+      })
+      QuietButton("停止", modifier = Modifier.weight(1f), onClick = {
+        context.startService(Intent(context, ReaderService::class.java).setAction(ReaderService.ACTION_STOP))
+      })
     }
   }
 }
@@ -3061,7 +2648,7 @@ private fun buildReaderText(text: String, tokens: List<ReadingToken>, range: Pai
       if (cursor < token.start) append(text.substring(cursor, token.start))
       val active = enabled && range.first < token.end && range.second > token.start
       if (active) {
-        withStyle(SpanStyle(background = Color(0xFFFFEB3B), color = Color.Black, fontWeight = FontWeight.Bold)) {
+        withStyle(SpanStyle(background = VtaColors.Purple, color = Color(0xFF231B38), fontWeight = FontWeight.Bold)) {
           append(text.substring(token.start, token.end))
         }
       } else {
@@ -3080,22 +2667,4 @@ private fun isCjk(char: Char): Boolean {
     block == Character.UnicodeBlock.HIRAGANA ||
     block == Character.UnicodeBlock.KATAKANA ||
     block == Character.UnicodeBlock.HANGUL_SYLLABLES
-}
-
-@Composable
-private fun LuYinTheme(content: @Composable () -> Unit) {
-  val colors =
-    androidx.compose.material3.darkColorScheme(
-      primary = Neon.Purple,
-      secondary = Neon.Blue,
-      tertiary = Color(0xFFD07CFF),
-      background = Neon.BgBottom,
-      surface = Neon.Panel,
-      surfaceVariant = Neon.PanelSoft,
-      onBackground = Neon.Text,
-      onSurface = Neon.Text,
-      onSurfaceVariant = Neon.Muted,
-      error = Neon.Error,
-    )
-  MaterialTheme(colorScheme = colors, content = content)
 }

@@ -4,10 +4,10 @@
     <style name="Theme.Luyin" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
-        <item name="android:windowBackground">#02040A</item>
-        <item name="android:colorAccent">#B02CFF</item>
-        <item name="android:navigationBarColor">#02040A</item>
-        <item name="android:statusBarColor">#02040A</item>
+        <item name="android:windowBackground">#080609</item>
+        <item name="android:colorAccent">#D7B8FF</item>
+        <item name="android:navigationBarColor">#080609</item>
+        <item name="android:statusBarColor">#080609</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 

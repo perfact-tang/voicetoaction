@@ -1,6 +1,8 @@
 package com.vibecodingjapan.ideavox
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -32,11 +34,33 @@ class RecordingListsInstrumentedTest {
           kind = RecordingKind.MERGED, uploadState = UploadState.UPLOADED, storageUri = "gs://test/separate", sourceRecordingIds = listOf("c"),
           uploadMode = UploadProcessMode.SEPARATE, aicallingTitle = "笔记整理"))
       }
+      val original = appStore.snapshot.value.recordings.single { it.id == "${prefix}source" }
+      compose.onNodeWithText(RecordingLists.displayName(original)).assertIsDisplayed()
+      screenshot("recorder-with-files.png")
+      compose.onNodeWithText(RecordingLists.displayName(original)).performClick()
+      compose.onNodeWithText("录音详情".localized(context)).assertIsDisplayed()
+      compose.onNodeWithText("关闭".localized(context)).performClick()
       compose.onNodeWithText("显示录音列表".localized(context)).performClick()
       compose.onNodeWithText("仅显示原始录音，点击可查看详情。".localized(context)).assertIsDisplayed()
       compose.onNodeWithText("old-output").assertDoesNotExist()
       compose.onNodeWithText("Idea Vox-2026-11-07-09-30.wav").assertDoesNotExist()
       screenshot("recordings.png")
+      compose.onNodeWithText(RecordingLists.displayName(original)).performClick()
+      compose.onNodeWithText("录音详情".localized(context)).assertIsDisplayed()
+      compose.onNodeWithText("播放".localized(context)).assertIsEnabled()
+      compose.onNodeWithContentDescription("分享".localized(context)).assertIsEnabled()
+      compose.onNodeWithText("保存名称".localized(context)).assertIsEnabled()
+      screenshot("recording-details.png")
+      compose.onNodeWithText("删除".localized(context)).performClick()
+      compose.onNodeWithText("删除录音".localized(context)).assertIsDisplayed()
+      screenshot("delete-confirmation.png")
+      compose.onNodeWithText("否".localized(context)).performClick()
+      compose.onNodeWithText("关闭".localized(context)).performClick()
+      compose.onNodeWithText("选择".localized(context)).performClick()
+      compose.onNodeWithText(RecordingLists.displayName(original)).performClick()
+      compose.onNodeWithText("上传".localized(context)).assertIsEnabled()
+      screenshot("recording-selection.png")
+      compose.onNodeWithText("取消".localized(context)).performClick()
       compose.onNodeWithText("上传成功".localized(context)).performClick()
       compose.onNodeWithText("合并上传".localized(context)).assertIsDisplayed()
       compose.onNodeWithText("逐条上传".localized(context)).assertIsDisplayed()
@@ -56,7 +80,10 @@ class RecordingListsInstrumentedTest {
 
   private fun screenshot(name: String) {
     val dir = File(compose.activity.getExternalFilesDir(null), "recording-list-artifacts").apply { mkdirs() }
-    val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
+    instrumentation.waitForIdleSync()
+    android.os.SystemClock.sleep(300)
+    val bitmap = instrumentation.uiAutomation.takeScreenshot()
     try { File(dir, name).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) } }
     finally { bitmap.recycle() }
   }

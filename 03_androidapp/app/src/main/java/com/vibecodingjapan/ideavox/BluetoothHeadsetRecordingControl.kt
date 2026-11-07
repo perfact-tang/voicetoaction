@@ -269,7 +269,7 @@ class BluetoothMediaButtonService : Service() {
       )
     return Notification.Builder(this, BLUETOOTH_MEDIA_CHANNEL_ID)
       .setSmallIcon(android.R.drawable.ic_media_play)
-      .setContentTitle("ideavox")
+      .setContentTitle(getString(R.string.app_name))
       .setContentText("耳机按键控制已开启".localized(this))
       .setContentIntent(openIntent)
       .setCategory(Notification.CATEGORY_TRANSPORT)
@@ -498,8 +498,8 @@ private fun mediaButtonPlaybackState(active: Boolean): PlaybackState {
 
 private fun mediaButtonMetadata(context: Context): MediaMetadata =
   MediaMetadata.Builder()
-    .putString(MediaMetadata.METADATA_KEY_TITLE, "ideavox 耳机按键控制".localized(context))
-    .putString(MediaMetadata.METADATA_KEY_ARTIST, "ideavox")
+    .putString(MediaMetadata.METADATA_KEY_TITLE, "VoiceToAction 耳机按键控制".localized(context))
+    .putString(MediaMetadata.METADATA_KEY_ARTIST, context.getString(R.string.app_name))
     .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
     .build()
 

@@ -129,6 +129,8 @@ data class RecorderUiState(
   val activeRecordingId: String? = null,
   val elapsedMs: Long = 0L,
   val inputLevel: Float = 0f,
+  /** Observed route for the settings display; never used to select an input. */
+  val activeInputLabel: String? = null,
 )
 
 data class UploadTaskUiState(

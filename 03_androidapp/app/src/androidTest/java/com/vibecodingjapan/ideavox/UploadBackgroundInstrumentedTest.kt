@@ -75,6 +75,12 @@ class UploadBackgroundInstrumentedTest {
       compose.waitUntil(10_000) { RecordingRuntime.state.value.status == RecordingStatus.RECORDING }
       compose.onNodeWithText("正在录音中").assertIsDisplayed()
       saveScreenshot("conversion-with-recording.png")
+      compose.waitUntil(5_000) { !RecordingRuntime.state.value.activeInputLabel.isNullOrBlank() }
+      val activeInputLabel = RecordingRuntime.state.value.activeInputLabel
+      compose.onNodeWithText("设置").performClick()
+      compose.onNodeWithText("正在使用：$activeInputLabel").assertIsDisplayed()
+      compose.onNodeWithText("正在录音中").assertIsDisplayed()
+      saveScreenshot("settings-active-input.png")
       assertTrue(UploadRuntime.state.value.active && UploadRuntime.state.value.minimized)
       compose.onNodeWithText("笔记").performClick()
       compose.onNodeWithText("现在正在转换中，请不要关闭程序").assertIsDisplayed()

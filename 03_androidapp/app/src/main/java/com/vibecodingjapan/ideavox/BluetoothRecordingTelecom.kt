@@ -326,7 +326,7 @@ object BluetoothRecordingTelecom {
 
   private fun registerPhoneAccount(telecom: TelecomManager, handle: PhoneAccountHandle) {
     val account =
-      PhoneAccount.builder(handle, "ideavox")
+      PhoneAccount.builder(handle, "VoiceToAction")
         .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
         .setShortDescription("蓝牙耳机录音控制")
         .addSupportedUriScheme("voip")
@@ -424,7 +424,7 @@ class BluetoothRecordingConnection(
     // existing call-audio mode is kept as the default; the Debug receiver can
     // switch it to standard VoIP mode for an A/B comparison.
     setAudioModeIsVoip(BluetoothRecordingTelecom.voipAudioMode())
-    setCallerDisplayName("ideavox 录音".localized(appContext), TelecomManager.PRESENTATION_ALLOWED)
+    setCallerDisplayName("VoiceToAction 录音".localized(appContext), TelecomManager.PRESENTATION_ALLOWED)
   }
 
   fun activate(address: Uri?) {

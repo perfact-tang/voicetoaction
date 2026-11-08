@@ -169,6 +169,29 @@
       "density": "SPARSE_ALL"
     },
     {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "ispublicsiteshow",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "target",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdat",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ],
+      "density": "SPARSE_ALL"
+    },
+    {
       "collectionGroup": "notes",
       "queryScope": "COLLECTION",
       "fields": [

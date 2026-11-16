@@ -89,14 +89,42 @@ object BluetoothRecordingWorkflow {
     if (!acceptUserControl(now, "voice")) return false
     val appContext = context.applicationContext
     val recordingId = UUID.randomUUID().toString()
-    synchronized(lock) {
+    val droppedUploadWindow = synchronized(lock) {
+      val dropped = dropStaleUploadWindowLocked(recordingId)
       if (phase != BluetoothGesturePhase.Idle) return false
       phase = BluetoothGesturePhase.StartingRecording(recordingId, now + STARTING_TIMEOUT_MS)
       voiceCommandDirectSco = true
       voiceCommandControl = true
+      dropped
+    }
+    if (droppedUploadWindow) {
+      expiryJob?.cancel()
+      expiryJob = null
+      BluetoothConfirmationFeedback.cancel()
+      Log.i(TAG, "voice start dropped stale upload confirmation window recording=$recordingId")
     }
     Log.i(TAG, "voice single-tap start recording=$recordingId")
     startAutomatedRecording(appContext, recordingId)
+    return true
+  }
+
+  /**
+   * Drop an upload-confirmation window that belongs to a recording which is no
+   * longer active. That window is only an optional "swipe again to upload"
+   * shortcut, so a new recording may supersede it. Without this, the leftover
+   * phase makes the next cycle's end gesture a no-op until the window expires.
+   * Must be called with [lock] held; the caller cancels [expiryJob] afterwards.
+   */
+  private fun dropStaleUploadWindowLocked(recordingId: String): Boolean {
+    val pendingUploadId =
+      when (val current = phase) {
+        is BluetoothGesturePhase.PreparingUploadConfirmation -> current.recordingId
+        is BluetoothGesturePhase.AwaitingUploadConfirmation -> current.recordingId
+        else -> null
+      }
+    if (pendingUploadId == null || pendingUploadId == recordingId) return false
+    phase = BluetoothGesturePhase.Idle
+    voiceCommandControl = false
     return true
   }
 
@@ -197,6 +225,18 @@ object BluetoothRecordingWorkflow {
 
   fun onRecordingStarted(context: Context, recordingId: String, announceStart: Boolean = false, bluetoothInput: Boolean = false) {
     scope.launch {
+      // A recording that did not go through this workflow (the in-app record
+      // button starts RecordingService directly) inherits the previous cycle's
+      // upload-confirmation phase. That stale window makes the volume end
+      // gesture a no-op and its late expiry can tear down the new route, so
+      // drop it as soon as the new recording actually reports started.
+      val droppedUploadWindow = synchronized(lock) { dropStaleUploadWindowLocked(recordingId) }
+      if (droppedUploadWindow) {
+        expiryJob?.cancel()
+        expiryJob = null
+        BluetoothConfirmationFeedback.cancel()
+        Log.i(TAG, "dropped stale upload confirmation window for new recording=$recordingId")
+      }
       val transition = synchronized(lock) {
         BluetoothGestureStateMachine.onRecordingStarted(phase, recordingId).also { phase = it.phase }
       }

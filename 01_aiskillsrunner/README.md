@@ -162,7 +162,20 @@ skills/audio-to-multilingual-blog/scripts/run-with-aiskillsrunner.sh --reffilepa
 
 ## 内置 Skill：text-to-interactive-blog
 
-把原稿或转写整理成中、日、英三语文章，必要时查证并补上来源。输出包含可独立打开的 `index.html`、各语言的 Markdown 和 `article.json`。阅读页在需要时使用 Mermaid、对照表和折叠问答，并用知识图谱展开分支和跳转正文。
+把原稿或转写整理成中、日、英三语文章，必要时查证并补上来源。输出**只有 Markdown 与数据**，
+不生成 HTML，也不自己上传：
+
+```
+~/Documents/interactive-articles/<DocID>/
+├── zh.md / ja.md / en.md   # 博客 MarkdownView 可直接渲染的正文（含 <a id="content-…"> 锚点）
+├── graph.json              # 知识图谱（节点/边/三语标签），后端写入 mkblog/<docid>.graph
+├── 文章信息.json            # 三语 blogtitle / blogsummary / blogseo / blogmindmap
+└── article.json            # 结构化源（三语正文 + 图谱），便于校验与续跑
+```
+
+发布交给后端：`monitor.js` 在 skill 成功后调用 `vibecodingjapan-upblog` 上传三语正文，
+再把 `graph.json` 写进 `mkblog`，并校验文章确实存在。两个博客系统
+（01_vibecodingjapanbloguser / 02_vibecodingjapanpublic）会在正文上方渲染这个图谱。
 
 在 `01_aiskillsrunner` 目录执行以下命令即可安装和运行。
 
@@ -170,10 +183,10 @@ skills/audio-to-multilingual-blog/scripts/run-with-aiskillsrunner.sh --reffilepa
 mkdir -p ~/.agents/skills
 cp -r skills/text-to-interactive-blog ~/.agents/skills/
 aiskillsrunner --skill text-to-interactive-blog --reffilepath ./stt.txt \
-  --prompt "按中、日、英编写，输出到当前工作目录的 interactive-article 子目录。"
+  --prompt "按中、日、英编写。"
 ```
 
-CMS 的 `applicationName` 使用 `text-to-interactive-blog`，对应 [ZIP 安装包](../dist/text-to-interactive-blog-1.0.0.zip)。运行结果是本地文章文件。技能说明和样例在 [技能目录](skills/text-to-interactive-blog/)。
+CMS 的 `applicationName` 使用 `text-to-interactive-blog`，对应 [ZIP 安装包](../dist/text-to-interactive-blog-2.0.0.zip)。技能说明和样例在 [技能目录](skills/text-to-interactive-blog/)。
 
 ## 内置 Skill：audio-to-note
 

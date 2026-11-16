@@ -107,6 +107,8 @@ adb shell am instrument -w -e class com.vibecodingjapan.ideavox.BluetoothRecordi
 
 10 月 25 日语音精简：移除“准备”“现在可以后滑结束”“已开启上传”“自动上传已完成”“已取消上传”语音；保留“开始录音”和“录音已结束，5秒内再后滑一次上传”。上传成功改为本地应用通知“已上传”（`luyin_upload_result` 渠道，默认重要性，正文为文件名），不再语音播报。
 
+11 月 16 日重复录音后滑不结束修复：第一轮结束后保留的上传确认窗口（10 秒 + 宽限期）此前会无条件吞掉下一轮的后滑结束，因为 App 内「普通录音」按钮直接启动 `RecordingService`、不推进手势 workflow。现在该窗口只保护同一条录音，新一轮双击开始或录音真正开始时会丢弃旧窗口；新录音开始前会关闭上一轮保留的 SCO 上传窗口、先按名称找回短暂缺失的钉住设备，并新增后滑被忽略的日志。10 秒防误触保护期不变，第二轮仍需等录音满 10 秒再后滑。改动未在本机编译（无 JDK/Android SDK），需执行 `./gradlew testDebugUnitTest assembleDebug` 并实机复测。详见 [重复录音后滑不结束修复](docs/bluetooth-repeat-volume-stop-fix-2026-11-16.md)。
+
 ## 录音列表与已有转写重新处理（2026-11-07）
 
 界面规划、请求协议、兼容边界、验证与服务器发布步骤见 [功能说明](docs/recording-lists-reprocessing-2026-11-07.md)。需要同步发布 Android APK、`monitor.js` 与 `monitor-transcripts.js` 并重启服务器 monitor；旧版服务器不会消费新的重新处理指令。

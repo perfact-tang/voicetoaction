@@ -17,6 +17,6 @@
 
 ## 按读者任务选组件
 
-OpenAI 在 2026 年 10 月 7 日的发布文章中，将 Intelligent UI 描述为按问题选择、组合文字、视觉和交互元素的 ChatGPT 能力。官方示例用并排对照支持比较，用互动结构图支持探索。发布文章还说明 ChatGPT 的实现采用原生组件库和渐进渲染。本技能借用内容决定呈现形式的原则，以本地 HTML 渲染文章。[OpenAI 发布说明](https://openai.com/index/gpt-6-for-everyone/) [OpenAI 帮助中心](https://help.openai.com/en/articles/20001598-intelligent-ui-in-chatgpt)
+OpenAI 在 2026 年 10 月 7 日的发布文章中，将 Intelligent UI 描述为按问题选择、组合文字、视觉和交互元素的 ChatGPT 能力。官方示例用并排对照支持比较，用互动结构图支持探索。发布文章还说明 ChatGPT 的实现采用原生组件库和渐进渲染。本技能借用内容决定呈现形式的原则，输出博客 MarkdownView 能渲染的正文与图谱数据。[OpenAI 发布说明](https://openai.com/index/gpt-6-for-everyone/) [OpenAI 帮助中心](https://help.openai.com/en/articles/20001598-intelligent-ui-in-chatgpt)
 
-在能顺读的正文上加组件。问答用于支线，已核实的主结论留在默认可读的段落中。表格用于对齐同一组维度。图示用 Mermaid 并附能独立读懂的说明。知识图谱用于理解关系和定位正文，节点及跨分支边应表达正文中实际出现的概念和联系。检查图谱、组件、来源和翻译是否都与最终正文相符。
+在能顺读的正文上加组件。问答用于支线，已核实的主结论留在默认可读的段落中。表格用于对齐同一组维度。图示用 Mermaid 并附能独立读懂的说明。知识图谱用于理解关系和定位正文，节点及跨分支边应表达正文中实际出现的概念和联系。检查图谱、组件、来源和翻译是否都与最终正文相符。正文只能是 Markdown，不要写 HTML、脚本或内联样式。

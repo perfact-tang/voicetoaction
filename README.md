@@ -141,7 +141,7 @@ cp .env.example .env
 | `DSH_BIN` | 可选 | dsh 可执行文件（默认由 aiskillsrunner 从 PATH 查找；子进程 PATH 会自动补上当前 node 目录） |
 | `SKILLS_RUNNER_TIMEOUT_MS` | 可选 | 单次 skill 执行超时（默认 5400000 = 1.5 小时；视频渲染类 skill 至少 1.5 小时） |
 | `SKILL_VERIFY_UPLOAD` | 可选 | skill 退出码为 0 时是否再做产物校验（默认 `true`） |
-| `SKILL_VERIFY_NAMES` | 可选 | 做产物校验的 skill 名单（默认只含 `audio-to-multilingual-blog`；`*` = 全部） |
+| `SKILL_VERIFY_NAMES` | 可选 | 做产物校验的 skill 名单（默认 `audio-to-multilingual-blog,text-to-interactive-blog`；`*` = 全部） |
 | `SKILL_RESUME_ATTEMPTS` | 可选 | 产物不完整时自动续跑的回合数（默认 `2`，`0` = 关闭，上限 `5`） |
 | `SKILL_TRANSIENT_RETRIES` | 可选 | 模型服务临时故障（5xx / 限流 / 超时 / 网络）时自动重跑的回合数（默认 `3`，`0` = 关闭，上限 `5`） |
 | `SKILL_TRANSIENT_RETRY_DELAY_MS` | 可选 | 临时故障重试的首次等待毫秒数（默认 `60000`，之后按 2 倍递增；最小 `1000`） |
@@ -334,9 +334,17 @@ zip 安装后不需要 `npm install`。`AISKILLS_NOTE_DRY_RUN=1` 只校验、不
    `SKILL_RESULT: OK docid=<DOCID> blog=/blog/<DOCID>`。`aiskillsrunner` 组成任务文本时还会额外
    写入「执行纪律」：必须用 `write`/`bash` 真正写文件、禁止把整篇正文只写在 reasoning 里。
 2. **后端侧**：退出码为 0 后再做产物校验（`SKILL_VERIFY_UPLOAD`，默认开）——
-   从 skill 输出取 DocID（取不到就按输出目录 mtime 兜底，且要求 4 个文件齐全），
+   从 skill 输出取 DocID（取不到就按输出目录 mtime 兜底，且要求文件齐全），
    再查 `mkblog/<DocID>` 是否存在；不存在就记 `failed`（启动自愈会重试，不会再假成功）。
-   校验名单默认只含 `audio-to-multilingual-blog`，用 `SKILL_VERIFY_NAMES` 调整。
+   校验名单默认含 `audio-to-multilingual-blog` 与 `text-to-interactive-blog`，用 `SKILL_VERIFY_NAMES` 调整。
+
+   `text-to-interactive-blog` 的发布方是**后端**（skill 只写文件）：
+   `monitor.js` 找到 `~/Documents/interactive-articles/<DocID>/` 下完整的
+   `zh.md / ja.md / en.md / graph.json / 文章信息.json`，调用一次
+   `vibecodingjapan-upblog` 写 `mkblog`，再把 `graph.json` 写进
+   `mkblog/<DocID>.graph`，最后校验文章确实存在。发布失败只记 `failed`，
+   不会再跑一遍 skill（避免重复生成内容）。手动补发用
+   `node scripts/publish-interactive-article.mjs --dir <产物目录> --uid <uid> --key <密钥>`。
 
 3. **后端侧（自动续跑）**：`SKILL_RESUME_ATTEMPTS`（默认 `2`）——
    headless 是单回合语义，agent 提前结束回合＝进程退出，同一次调用无法再续，

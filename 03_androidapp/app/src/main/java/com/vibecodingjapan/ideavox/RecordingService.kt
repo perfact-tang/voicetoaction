@@ -98,6 +98,17 @@ class RecordingService : Service() {
       if (volumeStopGate.accept(state.activeRecordingId, stream, previous, value, android.os.SystemClock.elapsedRealtime())) {
         android.util.Log.i(TAG, "optional volume swipe stop recording=${state.activeRecordingId} stream=$stream $previous->$value")
         BluetoothRecordingWorkflow.handleTelecomEnd(this@RecordingService, state.activeRecordingId, source = "volume")
+      } else if (stream == AudioManager.STREAM_VOICE_CALL && previous >= 0 && value == previous - 1) {
+        // The gates ignore volume-down during the first ten seconds after the
+        // recording starts (SCO setup echoes), after a stop was already
+        // handled, and for a mismatched recording id. Log it so a "the swipe
+        // did nothing" report can be told apart from "the gesture never
+        // arrived" without guessing.
+        android.util.Log.i(
+          TAG,
+          "volume swipe stop ignored (guard window, already handled, or other recording) " +
+            "recording=${state.activeRecordingId} stream=$stream $previous->$value",
+        )
       }
     }
   }
@@ -160,6 +171,11 @@ class RecordingService : Service() {
       return
     }
     startForeground(1001, notification("正在准备录音"))
+    // A new recording takes over the Bluetooth route. If the previous cycle kept
+    // HFP/SCO open for upload confirmation, close that window first: otherwise
+    // its late expiry would release the new cycle's route and leave the service
+    // with stale upload state.
+    abandonUploadWindow()
     currentId = intent?.getStringExtra(EXTRA_RECORDING_ID)?.takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString()
     val settings = appStore.snapshot.value
     val useSystemDefaultInput =
@@ -179,6 +195,25 @@ class RecordingService : Service() {
     val telecomControlPrewarmed =
       !forceDirectSco && intent?.getBooleanExtra(EXTRA_TELECOM_CONTROL_PREWARMED, false) == true
     var selectedInput = AudioDeviceSelection.findInput(this, requestedInputDeviceId)
+    if (selectedInput == null && requestedInputDeviceId != null) {
+      // The pinned device id can be briefly missing right after the previous
+      // SCO route was released. Resolve the same headset by name before falling
+      // back to the built-in microphone, which would silently disable the
+      // volume end gesture for this cycle.
+      selectedInput =
+        AudioDeviceSelection.findBluetoothInput(
+          this,
+          requestedInputDeviceId,
+          settings.selectedRecordingDeviceName,
+        )
+    }
+    if (requestedInputDeviceId != null && selectedInput == null) {
+      android.util.Log.w(
+        TAG,
+        "pinned recording device id=$requestedInputDeviceId name=${settings.selectedRecordingDeviceName} " +
+          "is unavailable; falling back to the default input",
+      )
+    }
     if (requireBluetoothInput && selectedInput?.let(AudioDeviceSelection::isBluetoothInput) != true) {
       // Pinned device first; only fall back to another Bluetooth input when it
       // is no longer present.
@@ -698,6 +733,28 @@ class RecordingService : Service() {
       audio.setStreamVolume(AudioManager.STREAM_VOICE_CALL, target, 0)
       android.util.Log.i(TAG, "restored call volume to $target recording=$currentId")
     }.onFailure { android.util.Log.w(TAG, "unable to restore session call volume", it) }
+  }
+
+  /**
+   * Close a kept-SCO upload window when the next recording starts before that
+   * window expired. The new recording owns the route from this point on, so the
+   * old reservation, volume and upload gate must not be released later.
+   */
+  private fun abandonUploadWindow() {
+    if (!keepScoForUpload) return
+    val abandonedId = currentId
+    keepScoForUpload = false
+    awaitingUploadConfirmation = false
+    uploadVolumeGate.clear(abandonedId)
+    restoreUploadVolume()
+    AudioDeviceSelection.restoreInputRoute(this, currentInputRoute)
+    currentInputRoute = null
+    currentInputDeviceId = null
+    currentUseCommunicationRoute = false
+    currentUseTelecomControl = false
+    BluetoothRecordingTelecom.endFromApp(abandonedId)
+    restoreSessionVolume()
+    android.util.Log.i(TAG, "abandoned kept-SCO upload window for a new recording recording=$abandonedId")
   }
 
   /** Close the kept SCO/call only after upload success, failure or timeout. */

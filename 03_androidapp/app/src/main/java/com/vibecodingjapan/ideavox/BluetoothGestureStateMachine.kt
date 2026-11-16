@@ -57,7 +57,19 @@ object BluetoothGestureStateMachine {
   ): BluetoothGestureTransition {
     val ignored = BluetoothGestureTransition(phase, BluetoothGestureEffect.Ignore)
     if (callRecordingId == null) return ignored
-    if (phase is BluetoothGesturePhase.PreparingUploadConfirmation || phase is BluetoothGesturePhase.AwaitingUploadConfirmation) return ignored
+    // A late hang-up / call end for the recording that is waiting for its
+    // upload confirmation must never turn into a stop or an upload. Only that
+    // same recording is protected: when the next recording has already started
+    // (for example through the in-app record button, which does not advance
+    // this state machine), the leftover upload window must not swallow the new
+    // recording's end gesture.
+    val uploadWindowRecordingId =
+      when (phase) {
+        is BluetoothGesturePhase.PreparingUploadConfirmation -> phase.recordingId
+        is BluetoothGesturePhase.AwaitingUploadConfirmation -> phase.recordingId
+        else -> null
+      }
+    if (uploadWindowRecordingId == callRecordingId) return ignored
     if (phase is BluetoothGesturePhase.StartingRecording && phase.recordingId == callRecordingId && recordingStatus == RecordingStatus.IDLE) {
       return BluetoothGestureTransition(phase.copy(stopRequested = true), BluetoothGestureEffect.Ignore)
     }
@@ -84,7 +96,10 @@ object BluetoothGestureStateMachine {
           )
         }
       is BluetoothGesturePhase.AwaitingUploadConfirmation ->
-        if (now <= phase.expiresAt) {
+        // Only an idle cycle can be confirmed for upload. If a newer recording
+        // is already running (started outside this state machine), fall through
+        // and treat the press as the end gesture for the active recording.
+        if (recordingStatus == RecordingStatus.IDLE && now <= phase.expiresAt) {
           return BluetoothGestureTransition(
             phase = BluetoothGesturePhase.Idle,
             effect = BluetoothGestureEffect.StartAutomaticUpload(phase.recordingId),
@@ -101,7 +116,9 @@ object BluetoothGestureStateMachine {
           )
         }
       is BluetoothGesturePhase.PreparingUploadConfirmation ->
-        return BluetoothGestureTransition(phase.copy(uploadRequested = true), BluetoothGestureEffect.Ignore)
+        if (recordingStatus == RecordingStatus.IDLE) {
+          return BluetoothGestureTransition(phase.copy(uploadRequested = true), BluetoothGestureEffect.Ignore)
+        }
       BluetoothGesturePhase.Idle -> Unit
     }
 

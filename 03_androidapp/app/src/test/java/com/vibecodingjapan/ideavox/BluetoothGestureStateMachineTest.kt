@@ -245,4 +245,43 @@ class BluetoothGestureStateMachineTest {
     assertEquals(next.phase, BluetoothGestureStateMachine.onRecordingStarted(next.phase, "old").phase)
   }
 
+  @Test fun olderUploadWindowCannotSwallowTheNextRecordingsStop() {
+    // The in-app record button starts the next recording without advancing the
+    // gesture workflow, so the previous cycle's upload window is still armed.
+    val awaiting = BluetoothGesturePhase.AwaitingUploadConfirmation("old", 50_000L)
+    val stopped = BluetoothGestureStateMachine.onTelecomEnd(awaiting, RecordingStatus.RECORDING, "new", "new")
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("new"), stopped.effect)
+    assertEquals(BluetoothGesturePhase.PreparingUploadConfirmation("new"), stopped.phase)
+
+    val preparing = BluetoothGesturePhase.PreparingUploadConfirmation("old")
+    val stoppedWhileSaving = BluetoothGestureStateMachine.onTelecomEnd(preparing, RecordingStatus.RECORDING, "new", "new")
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("new"), stoppedWhileSaving.effect)
+  }
+
+  @Test fun oldRecordingCallbacksStillCannotEndTheNewRecordingDuringItsUploadWindow() {
+    val awaiting = BluetoothGesturePhase.AwaitingUploadConfirmation("old", 50_000L)
+    val late = BluetoothGestureStateMachine.onTelecomEnd(awaiting, RecordingStatus.RECORDING, "new", "old")
+    assertEquals(BluetoothGestureEffect.Ignore, late.effect)
+    assertEquals(awaiting, late.phase)
+    val lateWhileIdle = BluetoothGestureStateMachine.onTelecomEnd(awaiting, RecordingStatus.IDLE, null, "new")
+    assertEquals(BluetoothGestureEffect.Ignore, lateWhileIdle.effect)
+    assertEquals(awaiting, lateWhileIdle.phase)
+  }
+
+  @Test fun triggerDuringANewRecordingSupersedesAnOlderUploadWindow() {
+    // Media/trigger path: a press while the next recording is already running
+    // must end that recording, not upload the previous one or be ignored.
+    val awaiting = BluetoothGesturePhase.AwaitingUploadConfirmation("old", 50_000L)
+    val stopped = BluetoothGestureStateMachine.onTrigger(awaiting, RecordingStatus.RECORDING, "new", "unused", 20_000L)
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("new"), stopped.effect)
+
+    val preparing = BluetoothGesturePhase.PreparingUploadConfirmation("old")
+    val stoppedWhileSaving = BluetoothGestureStateMachine.onTrigger(preparing, RecordingStatus.RECORDING, "new", "unused", 21_000L)
+    assertEquals(BluetoothGestureEffect.StopAndArmUpload("new"), stoppedWhileSaving.effect)
+
+    // The idle upload window keeps its own behaviour.
+    val upload = BluetoothGestureStateMachine.onTrigger(awaiting, RecordingStatus.IDLE, null, "unused", 22_000L)
+    assertEquals(BluetoothGestureEffect.StartAutomaticUpload("old"), upload.effect)
+  }
+
 }

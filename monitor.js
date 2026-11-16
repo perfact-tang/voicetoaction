@@ -33,6 +33,13 @@ import {
   runAiskillsrunner,
   runSkillWithResume
 } from "./monitor-skills.js";
+import {
+  INTERACTIVE_BLOG_SKILL,
+  INTERACTIVE_REQUIRED_FILES,
+  INTERACTIVE_ROOT,
+  pickInteractiveOutput,
+  publishInteractiveArticle
+} from "./monitor-interactive-blog.js";
 import { prepareTranscript, processingJobId, reprocessingRecord, duplicatesAudio } from "./monitor-transcripts.js";
 import { sendJobNotification } from "./monitor-notify.js";
 import { describeFallback, normalizeSttEngine, resolveSttEngine } from "./scripts/stt-engines.js";
@@ -51,9 +58,32 @@ const blogCollection = process.env.BLOG_COLLECTION || "mkblog";
  */
 const skillTmpRoot = process.env.AISKILLS_BLOG_TMPDIR || join(homedir(), "Documents", "tmpaiskill");
 /** 默认做产物校验的 skill（SKILL_VERIFY_NAMES 未设置时用；设为 * 表示对所有 skill 生效）。 */
-const DEFAULT_VERIFY_SKILL_NAMES = ["audio-to-multilingual-blog"];
+const DEFAULT_VERIFY_SKILL_NAMES = ["audio-to-multilingual-blog", INTERACTIVE_BLOG_SKILL];
 /** 判定「输出目录已完成」所需的 4 个文件（与 audio-to-multilingual-blog 的约定一致）。 */
 const SKILL_OUTPUT_FILES = ["中文.md", "日文.md", "英文.md", "文章信息.json"];
+/**
+ * 每个 skill 的产物位置与发布方：
+ *   - audio-to-multilingual-blog / text-to-animation-movie 由 skill 自己上传，后端只校验；
+ *   - text-to-interactive-blog 只写本地文件，由后端调用 upblog 发布并写入图谱。
+ */
+const SKILL_PIPELINES = {
+  [INTERACTIVE_BLOG_SKILL]: {
+    root: INTERACTIVE_ROOT,
+    files: INTERACTIVE_REQUIRED_FILES,
+    publisher: "monitor"
+  }
+};
+
+/** 取某个 skill 的产物配置；未登记的 skill 沿用音频博客的约定。 */
+function skillPipeline(skillName) {
+  return (
+    SKILL_PIPELINES[skillName] || {
+      root: skillTmpRoot,
+      files: SKILL_OUTPUT_FILES,
+      publisher: "skill"
+    }
+  );
+}
 /** audio-to-note 的输出文件（用于 note 产物的兜底定位）。 */
 const NOTE_OUTPUT_FILES = ["笔记.json"];
 /** 需要把「上传时选择的语言」写进提示词的 skill。 */
@@ -1077,6 +1107,38 @@ async function verifySkillUpload({ skillName, stdout, startedAtMs }) {
   };
 }
 
+/**
+ * text-to-interactive-blog 的产物校验：这个 skill 不自己上传，所以这里只确认
+ * 「本次运行确实写出了完整的一套 Markdown + 图谱 + 文章信息」，发布由后端紧接着做。
+ * 返回 { verified, docId, output } | { error }。
+ */
+async function verifyInteractiveFiles({ stdout, startedAtMs, pipeline }) {
+  const output = await pickInteractiveOutput(pipeline.root, startedAtMs);
+  if (!output) {
+    return {
+      error:
+        `产物校验失败：skill 退出码为 0，但 ${pipeline.root} 下没有本次生成的输出目录。` +
+        `疑似 agent 提前结束回合（headless 单回合语义），请查 journalctl 里的 [skill:*] 日志。`
+    };
+  }
+  if (!output.complete) {
+    return {
+      error:
+        `产物校验失败：${output.dir} 缺少 ${output.missing.join("、")}` +
+        `（需要 ${pipeline.files.join(" / ")}）。`
+    };
+  }
+  const reported = extractDocIds(stdout);
+  if (reported.length && !reported.includes(output.docId)) {
+    return {
+      error:
+        `产物校验失败：报告里的 docid（${[...new Set(reported)].slice(0, 3).join(", ")}）` +
+        `与输出目录 ${output.docId} 不一致；目录名必须是 docid。`
+    };
+  }
+  return { verified: true, docId: output.docId, matchedBy: "本地产物（后端负责发布）", output };
+}
+
 /** Skills 流程的本地 STT 文本路径：<sttOutputDir>/<uid>/<documentId>.txt */
 function transcriptPath(job) {
   const dir = join(state.config.sttOutputDir, sanitizeFileStem(job.userId, "user"));
@@ -1386,15 +1448,16 @@ async function processSkillJob(job) {
     state.config.skillTransientRetries > 0 &&
     (state.config.skillTransientRetryNames.length === 0 ||
       state.config.skillTransientRetryNames.includes(service.skillName));
+  const pipeline = skillPipeline(service.skillName);
   const loopResult = await runSkillWithResume({
     maxAttempts: maxSkillAttempts,
     maxFailureRetries: transientRetriesEnabled ? state.config.skillTransientRetries : 0,
     failureRetryDelayMs: state.config.skillTransientRetryDelayMs,
     inspect: () =>
       inspectSkillOutputs({
-        root: skillTmpRoot,
+        root: pipeline.root,
         startedAtMs: skillRunStartedAtMs,
-        files: SKILL_OUTPUT_FILES
+        files: pipeline.files
       }),
     buildResumePrompt: ({ outputs }) =>
       buildSkillResumePrompt({
@@ -1402,7 +1465,9 @@ async function processSkillJob(job) {
         skillDir: localSkillDir,
         outputs,
         sttPath: textPath,
-        tmpRoot: skillTmpRoot
+        tmpRoot: pipeline.root,
+        files: pipeline.files,
+        publisher: pipeline.publisher
       }),
     run: async ({ attempt, isResume, attachRef, resumePrompt, outputs }) => {
       if (isResume) {
@@ -1465,7 +1530,7 @@ async function processSkillJob(job) {
         const retryable =
           transientRetriesEnabled &&
           isTransientSkillFailure(runResult.stderr, runResult.stdout) &&
-          !hasRecentSkillOutput(skillTmpRoot, skillRunStartedAtMs);
+          !hasRecentSkillOutput(pipeline.root, skillRunStartedAtMs);
         return {
           ok: false,
           retryable,
@@ -1476,11 +1541,13 @@ async function processSkillJob(job) {
     },
     // 退出码 0 ≠ 真的做完：独立校验产物，避免 headless 回合提前结束造成的假成功
     verify: ({ output }) =>
-      verifySkillUpload({
-        skillName: service.skillName,
-        stdout: output,
-        startedAtMs: skillRunStartedAtMs
-      }),
+      pipeline.publisher === "monitor"
+        ? verifyInteractiveFiles({ stdout: output, startedAtMs: skillRunStartedAtMs, pipeline })
+        : verifySkillUpload({
+            skillName: service.skillName,
+            stdout: output,
+            startedAtMs: skillRunStartedAtMs
+          }),
     onEvent: (event) => {
       if (event.type === "retry") {
         log(
@@ -1511,10 +1578,46 @@ async function processSkillJob(job) {
 
   const output = loopResult.output;
   const uploadCheck = loopResult.check;
-  if (uploadCheck.verified) {
+  const monitorPublishes = pipeline.publisher === "monitor";
+  let blogDocId = uploadCheck.verified && !monitorPublishes ? uploadCheck.docId : null;
+  if (uploadCheck.verified && monitorPublishes) {
+    log(`本地产物校验通过：${uploadCheck.docId} → ${uploadCheck.output.dir}，由后端发布...`);
+  } else if (uploadCheck.verified) {
     log(`产物校验通过：${blogCollection}/${uploadCheck.docId} 已存在（匹配依据：${uploadCheck.matchedBy}）`);
   } else if (uploadCheck.skipped) {
     log(`产物校验跳过：${uploadCheck.reason || "SKILL_VERIFY_UPLOAD=false"}`);
+  }
+
+  // text-to-interactive-blog 只写本地文件：这里统一上传三语正文，并把知识图谱写回 mkblog。
+  // 发布失败按任务失败处理（不触发 skill 重跑，避免重复生成内容）。
+  if (monitorPublishes && uploadCheck.verified) {
+    updateJob(job.id, (entry) => {
+      entry.stage = "updating_firestore";
+      entry.progress = 94;
+      entry.errorMessage = "正在发布文章与知识图谱…";
+    });
+    try {
+      const published = await publishInteractiveArticle({
+        dir: uploadCheck.output.dir,
+        docId: uploadCheck.docId,
+        userId: job.userId,
+        db: state.db,
+        firebaseKeyPath: state.config.adminKeyPath,
+        collection: blogCollection,
+        log
+      });
+      blogDocId = published.docId;
+      log(
+        `文章已发布：${published.blogPath}` +
+          `（${published.graphNodes} 个图谱节点 / ${published.graphEdges} 条边）`
+      );
+      updateJob(job.id, (entry) => {
+        entry.errorMessage = null;
+      });
+    } catch (error) {
+      log(`发布失败：${error.message}`);
+      return `后端发布失败：${error.message}`;
+    }
   }
 
   // audio-to-note 不走博客产物校验，单独确认 Note 真的写进了 Firestore。
@@ -1557,7 +1660,7 @@ async function processSkillJob(job) {
       skillName: service.skillName,
       skillVersion: service.version,
       skillOutput: output.slice(0, MAX_SKILL_OUTPUT_CHARS),
-      ...(uploadCheck.verified ? { skillUploadVerified: true, blogDocId: uploadCheck.docId } : {}),
+      ...(blogDocId ? { skillUploadVerified: true, blogDocId } : {}),
       ...(stored?.gsUrl ? { sttTextPath: stored.gsUrl, sttTextUrl: stored.httpsUrl || "" } : {}),
       sttTextLocalPath: textPath,
       ...(noteDocId ? { noteDocId } : {})
@@ -1578,7 +1681,10 @@ async function processSkillJob(job) {
   if (skillAlreadyNotified) {
     log("skill 已自行发送完成通知（SKILL_RESULT … notified=1），跳过后端通用推送。");
   } else {
-    await notifyJobResult(job, { ok: true, body: `skill「${service.skillName}」执行完毕。` });
+    const body = blogDocId
+      ? `skill「${service.skillName}」执行完毕，文章已发布：/blog/${blogDocId}`
+      : `skill「${service.skillName}」执行完毕。`;
+    await notifyJobResult(job, { ok: true, body });
   }
   return null;
 }

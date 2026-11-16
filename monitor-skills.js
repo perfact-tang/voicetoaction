@@ -390,8 +390,13 @@ export function buildSkillResumePrompt({
   skillDir,
   outputs = [],
   sttPath,
-  tmpRoot
+  tmpRoot,
+  /** 判定完成的文件名（默认是音频博客 skill 的 4 个文件）。 */
+  files = ["中文.md", "日文.md", "英文.md", "文章信息.json"],
+  /** "skill"：由 skill 自己上传；"monitor"：后端在 skill 结束后统一发布。 */
+  publisher = "skill"
 } = {}) {
+  const byMonitor = publisher === "monitor";
   const lines = [
     "上一次执行在完成前就结束了回合（headless 单回合语义，进程已退出），任务并未完成。",
     "请**接着做完剩下的步骤**：不要重新审阅素材，也不要重写已经写好的文件。"
@@ -413,8 +418,19 @@ export function buildSkillResumePrompt({
     if (latest.missing.length) lines.push(`仍需补齐：${latest.missing.join("、")}`);
     if (latest.complete) {
       lines.push(
-        "4 个文件已经齐全，只差上传：请按 skill 的上传步骤调用 vibecodingjapan-upblog" +
-          `（--docid ${latest.docId}，密钥取环境变量 AISKILLS_FIREBASE_ACCOUNT），成功后输出最终报告。`
+        byMonitor
+          ? `文件已经齐全（${files.join("、")}）。上传由后端统一完成：**不要**再调用任何上传命令，` +
+              `直接输出最终报告（含 SKILL_RESULT: OK docid=${latest.docId}）。`
+          : "4 个文件已经齐全，只差上传：请按 skill 的上传步骤调用 vibecodingjapan-upblog" +
+              `（--docid ${latest.docId}，密钥取环境变量 AISKILLS_FIREBASE_ACCOUNT），成功后输出最终报告。`
+      );
+    } else if (byMonitor) {
+      const renderCommand =
+        `node scripts/render-markdown.mjs "${latest.dir}/article.json" "${latest.dir}"`;
+      lines.push(
+        "请补齐上面缺失的文件：先修 `article.json`，再运行 `" + renderCommand + "` 重新生成 Markdown 与 " +
+          "graph.json；`文章信息.json` 按 SKILL.md 的字段补齐。**不要**调用上传命令，" +
+          "上传由后端负责，最后输出最终报告。"
       );
     } else {
       lines.push(
@@ -436,7 +452,7 @@ export function buildSkillResumePrompt({
 
   lines.push(
     "⚠️ 必须用工具（write / bash）把内容真正写入磁盘：**禁止把整篇文章只写在 reasoning 里**。" +
-      "每写完一个文件就用 bash 确认它存在且非空；4 个文件与上传报告全部完成之前，不要结束回合。"
+      `每写完一个文件就用 bash 确认它存在且非空；${files.join("、")} 与最终报告全部完成之前，不要结束回合。`
   );
   return lines.join("\n");
 }

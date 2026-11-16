@@ -1,0 +1,4 @@
+interface:
+  display_name: "多语言交互文章"
+  short_description: "重组文本并生成带知识图谱与 Mermaid 图示的多语言文章"
+  default_prompt: "用 $text-to-interactive-blog 把这份文字整理成中日英交互文章。"

@@ -415,7 +415,7 @@ function composeTask(skill, prompt, ref, extras = []) {
     '执行纪律（headless 单回合语义，必须遵守）：\n' +
       '- 必须用工具（write / edit / bash）把文件**真正写到磁盘**；禁止把整篇正文只写在 reasoning 里。\n' +
       '- 每写完一个文件，就用 bash 确认它存在且非空，再进入下一步。\n' +
-      '- 所有步骤（含上传与最终结果报告）完成之前，不要结束回合；也不要以「稍等 / 正在处理」收尾。'
+      '- 完成该 skill 要求的步骤与最终结果报告后再结束回合。'
   );
 
   if (prompt && prompt.trim()) {

@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "defaultLocale": "zh",
+  "sources": [
+    {
+      "id": "reverse-outline",
+      "title": "UW–Madison Writing Center · Creating a Reverse Outline",
+      "url": "https://writing.wisc.edu/handbook/processandstructure/reverseoutlines/"
+    },
+    {
+      "id": "lateral-reading",
+      "title": "Digital Inquiry Group · Teaching Lateral Reading",
+      "url": "https://cor.inquirygroup.org/curriculum/collections/teaching-lateral-reading/"
+    },
+    {
+      "id": "intelligent-ui",
+      "title": "OpenAI · GPT-6 and Intelligent UI for everyone",
+      "url": "https://openai.com/index/gpt-6-for-everyone/"
+    }
+  ],
+  "locales": {
+    "zh": {
+      "title": "把跳跃的原稿写成可探索的文章",
+      "summary": "先找出作者想讲清楚的问题，再决定哪些地方值得用图示或交互。读者可以顺着正文阅读，也可以从知识图谱直达关心的段落。",
+      "sections": [
+        {
+          "id": "source-review",
+          "title": "把散落的论据放回主线",
+          "blocks": [
+            {
+              "id": "review-pass",
+              "type": "paragraph",
+              "text": "口述时，最能说明问题的例子可能到结尾才想起来。读第一遍时先找作者真正想回答的问题。第二遍用反向提纲把每个发言单元压成一句话，再把有关的观点、经历和限制归到一起。一段看似打岔的回忆，也可能交代了主张成立的条件。",
+              "sources": ["reverse-outline"]
+            },
+            {
+              "id": "causal-gap",
+              "type": "details",
+              "label": "原稿暗示因果，证据只有先后顺序，怎么写？",
+              "text": "先把问题写具体。结果会不会受其他变化影响？有什么证据能区分几种解释？假如素材只说「改了做法后情况好转」，正文可以保留这段经历，并把原因写成待检验的解释。"
+            },
+            {
+              "id": "source-check",
+              "type": "paragraph",
+              "text": "遇到会左右结论的公开事实，先找到原始资料，再看独立来源怎么评价它。阅读时核对对象、时间和条件。把查实的补充放回相关段落，给出能直接检查的来源。",
+              "sources": ["lateral-reading"]
+            }
+          ]
+        },
+        {
+          "id": "article-layout",
+          "title": "给不同的阅读任务选组件",
+          "blocks": [
+            {
+              "id": "openai-example",
+              "type": "paragraph",
+              "text": "OpenAI 在 2026 年 10 月 7 日介绍的 Intelligent UI 会按问题组合文字、视觉和交互。官方演示用可点选的自行车部件解释整车如何工作。用在文章里，正文先讲完整的意思，交互留给读者需要比较、探索或追问的地方。",
+              "sources": ["intelligent-ui"]
+            },
+            {
+              "id": "component-choices",
+              "type": "comparison",
+              "title": "读者要做什么",
+              "columns": ["阅读任务", "文章里怎么呈现"],
+              "rows": [
+                ["理解一个判断", "用段落交代观点、依据和限制"],
+                ["比较几个方案", "用表格对齐比较维度"],
+                ["理解步骤的先后", "用 Mermaid 图配一段独立可读的解释"],
+                ["追问一个例子", "将延伸内容放入可展开的问答"]
+              ]
+            },
+            {
+              "id": "writing-flow",
+              "type": "mermaid",
+              "caption": "从原文到多语言成稿",
+              "description": "先梳理素材、核对影响结论的疑点，然后定稿。同一份定稿衍生各语言版本，每一版保留对应的内容锚点。",
+              "code": "flowchart LR\n    read[\"重组原文\"] --> check[\"核对关键疑点\"]\n    check --> draft[\"完成定稿\"]\n    draft --> localize[\"本地化各语言\"]"
+            }
+          ]
+        },
+        {
+          "id": "graph-navigation",
+          "title": "从知识图谱跳到正文里的依据",
+          "blocks": [
+            {
+              "id": "graph-sequence",
+              "type": "paragraph",
+              "text": "先看少量主题。圆的面积表示它在论述中的重要性，颜色说明它与上一层是论据、解释、案例还是其他关系。双击主题展开下一层，读到末级节点时，再双击就能跳到对应的段落或组件。"
+            },
+            {
+              "id": "anchor-mapping",
+              "type": "details",
+              "label": "切换语言后，为什么还能到同一个位置？",
+              "text": "每个章节和内容块都有固定 ID，各语言共享这套 ID。图谱绑定的是 ID，所以即使标题的措辞变了，跳转也会落在同一个内容块。节点指向折叠问答时，跳转还会展开答案。"
+            }
+          ]
+        }
+      ]
+    },
+    "ja": {
+      "title": "話が飛ぶ原稿を、読み進めながら探索できる記事に",
+      "summary": "まず書き手が答えたい問いを見つけ、図や操作が役立つ箇所を選びます。読者は本文を順に読むことも、知識グラフから関心のある段落へ移ることもできます。",
+      "sections": [
+        {
+          "id": "source-review",
+          "title": "散らばった根拠を主題のもとに集める",
+          "blocks": [
+            {
+              "id": "review-pass",
+              "type": "paragraph",
+              "text": "話していると、いちばん分かりやすい例を最後になって思い出すことがあります。一読目は、書き手が本当に答えたい問いを見つけます。二読目は、発言ごとに要点を一文にするリバース・アウトラインを使い、関連する見解、経験、条件をまとめます。脱線に見える思い出が、主張の成り立つ条件を示していることもあります。",
+              "sources": ["reverse-outline"]
+            },
+            {
+              "id": "causal-gap",
+              "type": "details",
+              "label": "前後関係しか分からないとき、原因をどう書く？",
+              "text": "別の変化が結果に影響した可能性はあるか。説明を見分けるにはどんな証拠が必要か。まずそこを具体的に問います。「やり方を変えた後に状況が改善した」という経験は本文に残し、原因は検証が必要な解釈として示せます。"
+            },
+            {
+              "id": "source-check",
+              "type": "paragraph",
+              "text": "結論を左右する公開情報は、まず一次資料を探し、独立した情報源がどう評価しているかも確認します。対象、時期、条件が同じかを確かめ、確認できた補足は該当する段落に出典とともに載せます。",
+              "sources": ["lateral-reading"]
+            }
+          ]
+        },
+        {
+          "id": "article-layout",
+          "title": "読者がしたいことに合わせて見せ方を選ぶ",
+          "blocks": [
+            {
+              "id": "openai-example",
+              "type": "paragraph",
+              "text": "OpenAI が2026年10月7日に発表した Intelligent UI は、質問に合わせて文章、図、操作できる要素を組み合わせます。公式デモでは、自転車の部品を選ぶと車体の仕組みが分かります。記事でも、本文で要点を伝えたうえで、比較、探索、追加の疑問に操作できる要素を使えます。",
+              "sources": ["intelligent-ui"]
+            },
+            {
+              "id": "component-choices",
+              "type": "comparison",
+              "title": "読者の目的と見せ方",
+              "columns": ["読者の目的", "記事での見せ方"],
+              "rows": [
+                ["判断の理由を理解する", "段落で主張、根拠、条件を説明する"],
+                ["選択肢を比べる", "表で比較軸をそろえる"],
+                ["手順の順序をつかむ", "Mermaid 図に、図がなくても読める説明を添える"],
+                ["具体例を掘り下げる", "補足を展開できる問答にする"]
+              ]
+            },
+            {
+              "id": "writing-flow",
+              "type": "mermaid",
+              "caption": "原文から多言語版ができるまで",
+              "description": "素材を整理し、結論を左右する疑問を確認して原稿を確定します。各言語版は同じ原稿をもとに作り、対応する箇所のアンカーを共有します。",
+              "code": "flowchart LR\n    read[\"原文を再構成\"] --> check[\"重要な疑問を確認\"]\n    check --> draft[\"原稿を確定\"]\n    draft --> localize[\"各言語に翻訳\"]"
+            }
+          ]
+        },
+        {
+          "id": "graph-navigation",
+          "title": "知識グラフから本文の根拠へ",
+          "blocks": [
+            {
+              "id": "graph-sequence",
+              "type": "paragraph",
+              "text": "最初に主なテーマが少数表示されます。円の面積は重要度、色は親ノードとの関係を表します。テーマをダブルクリックすると次の階層が開き、末端のノードをダブルクリックすると対応する段落や項目へ移動できます。"
+            },
+            {
+              "id": "anchor-mapping",
+              "type": "details",
+              "label": "言語を切り替えても同じ箇所を開けるのはなぜ？",
+              "text": "章や段落などの各要素には、全言語共通の固定 ID があります。グラフはこの ID を参照するため、見出しを翻訳しても同じ内容に移動します。折りたたまれた問答へのリンクは、移動と同時に回答を開きます。"
+            }
+          ]
+        }
+      ]
+    },
+    "en": {
+      "title": "Turn a meandering draft into an article readers can explore",
+      "summary": "Find the question the author wants to answer, then choose where a diagram or interaction helps. Readers can follow the article from start to finish or use the knowledge graph to jump to a passage.",
+      "sections": [
+        {
+          "id": "source-review",
+          "title": "Bring scattered evidence back to the main argument",
+          "blocks": [
+            {
+              "id": "review-pass",
+              "type": "paragraph",
+              "text": "When people speak, they may remember their best example at the very end. On the first pass, find the question the author wants to answer. On the second, make a reverse outline by summarizing each stretch of speech in one sentence. Group the relevant claims, experiences and caveats. What sounds like a tangent may explain when the claim holds.",
+              "sources": ["reverse-outline"]
+            },
+            {
+              "id": "causal-gap",
+              "type": "details",
+              "label": "How do you write about cause when all you know is what happened first?",
+              "text": "Ask what else might have affected the outcome and what evidence could distinguish those explanations. If the author only reports that things improved after changing their approach, keep the experience in the article and describe the cause as an explanation that still needs testing."
+            },
+            {
+              "id": "source-check",
+              "type": "paragraph",
+              "text": "When a public fact could change the conclusion, track down the original material and see how independent sources assess it. Check that the subject, date and conditions match. Add what you can verify to the relevant passage, along with a source the reader can inspect.",
+              "sources": ["lateral-reading"]
+            }
+          ]
+        },
+        {
+          "id": "article-layout",
+          "title": "Choose the format for what the reader needs to do",
+          "blocks": [
+            {
+              "id": "openai-example",
+              "type": "paragraph",
+              "text": "OpenAI introduced Intelligent UI on October 7, 2026. It combines text, visuals and controls to fit the question. In the official bicycle demo, you can select a component to see how it works. In an article, prose can carry the main argument, with interactions where people want to compare, explore or follow a question further.",
+              "sources": ["intelligent-ui"]
+            },
+            {
+              "id": "component-choices",
+              "type": "comparison",
+              "title": "What the reader wants to do",
+              "columns": ["Reading task", "Format in the article"],
+              "rows": [
+                ["Understand a judgment", "Explain the claim, evidence and caveats in prose"],
+                ["Compare options", "Align the criteria in a table"],
+                ["See how steps fit together", "Use a Mermaid diagram with a stand-alone text explanation"],
+                ["Explore an example", "Put the extra detail in an expandable answer"]
+              ]
+            },
+            {
+              "id": "writing-flow",
+              "type": "mermaid",
+              "caption": "From source notes to localized articles",
+              "description": "Organize the material and investigate uncertainties that could change the conclusion. Finalize one edition, then localize it with matching anchors across languages.",
+              "code": "flowchart LR\n    read[\"Organize the source\"] --> check[\"Check key questions\"]\n    check --> draft[\"Finalize the article\"]\n    draft --> localize[\"Localize each edition\"]"
+            }
+          ]
+        },
+        {
+          "id": "graph-navigation",
+          "title": "Follow the knowledge graph to the passage behind a claim",
+          "blocks": [
+            {
+              "id": "graph-sequence",
+              "type": "paragraph",
+              "text": "The graph opens with a few themes. Circle area reflects importance, and color shows how a node relates to its parent. Double-click a theme to open the next level. Double-click a leaf to jump to the passage or component it refers to."
+            },
+            {
+              "id": "anchor-mapping",
+              "type": "details",
+              "label": "Why does the same link work after switching languages?",
+              "text": "Every section and content block has a stable ID shared across languages. The graph links to that ID, so a translated heading still leads to the same content. When the destination is a collapsed question, the jump also opens the answer."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "graph": {
+    "nodes": [
+      { "id": "edit", "weight": 5, "relation": "theme", "labels": { "zh": "梳理原稿", "ja": "原稿を整理", "en": "Organize the draft" } },
+      { "id": "presentation", "weight": 4, "relation": "theme", "labels": { "zh": "选择形式", "ja": "見せ方を選ぶ", "en": "Choose a format" } },
+      { "id": "navigation", "weight": 4, "relation": "theme", "labels": { "zh": "跳转正文", "ja": "本文への案内", "en": "Navigate the article" } },
+      { "id": "outline", "parent": "edit", "weight": 4, "relation": "explains", "anchor": "review-pass", "labels": { "zh": "两遍阅读", "ja": "二度の読み直し", "en": "Two reading passes" } },
+      { "id": "evidence", "parent": "edit", "weight": 3, "relation": "supports", "labels": { "zh": "核查论据", "ja": "根拠を確かめる", "en": "Check evidence" } },
+      { "id": "causality", "parent": "evidence", "weight": 2, "relation": "qualifies", "anchor": "causal-gap", "labels": { "zh": "因果疑问", "ja": "因果の疑問", "en": "Cause and timing" } },
+      { "id": "verification", "parent": "evidence", "weight": 3, "relation": "explains", "anchor": "source-check", "labels": { "zh": "横向查证", "ja": "横断的な確認", "en": "Lateral reading" } },
+      { "id": "comparison", "parent": "presentation", "weight": 3, "relation": "contrasts", "anchor": "component-choices", "labels": { "zh": "组件对照", "ja": "見せ方の対比", "en": "Compare formats" } },
+      { "id": "diagram", "parent": "presentation", "weight": 2, "relation": "illustrates", "anchor": "writing-flow", "labels": { "zh": "写作流程图", "ja": "執筆フロー", "en": "Writing flow" } },
+      { "id": "layers", "parent": "navigation", "weight": 3, "relation": "explains", "anchor": "graph-sequence", "labels": { "zh": "分层浏览", "ja": "階層をたどる", "en": "Explore layers" } },
+      { "id": "anchors", "parent": "navigation", "weight": 3, "relation": "explains", "anchor": "anchor-mapping", "labels": { "zh": "三语共用锚点", "ja": "共通アンカー", "en": "Shared anchors" } }
+    ],
+    "edges": [
+      { "source": "edit", "target": "presentation", "relation": "supports" },
+      { "source": "navigation", "target": "presentation", "relation": "illustrates" },
+      { "source": "diagram", "target": "anchors", "relation": "explains" }
+    ]
+  }
+}

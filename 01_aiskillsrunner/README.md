@@ -160,6 +160,21 @@ skills/audio-to-multilingual-blog/scripts/run-with-aiskillsrunner.sh --reffilepa
 （`AISKILLS_BLOG_KEY` / `AISKILLS_BLOG_UID` / `AISKILLS_BLOG_TMPDIR` / `AISKILLS_BLOG_DRY_RUN`）
 见 skill 的 README。
 
+## 内置 Skill：text-to-interactive-blog
+
+把原稿或转写整理成中、日、英三语文章，必要时查证并补上来源。输出包含可独立打开的 `index.html`、各语言的 Markdown 和 `article.json`。阅读页在需要时使用 Mermaid、对照表和折叠问答，并用知识图谱展开分支和跳转正文。
+
+在 `01_aiskillsrunner` 目录执行以下命令即可安装和运行。
+
+```bash
+mkdir -p ~/.agents/skills
+cp -r skills/text-to-interactive-blog ~/.agents/skills/
+aiskillsrunner --skill text-to-interactive-blog --reffilepath ./stt.txt \
+  --prompt "按中、日、英编写，输出到当前工作目录的 interactive-article 子目录。"
+```
+
+CMS 的 `applicationName` 使用 `text-to-interactive-blog`，对应 [ZIP 安装包](../dist/text-to-interactive-blog-1.0.0.zip)。运行结果是本地文章文件。技能说明和样例在 [技能目录](skills/text-to-interactive-blog/)。
+
 ## 内置 Skill：audio-to-note
 
 把语音转文字（STT）原文整理成一篇**忠实于原意和叙事顺序**的笔记，

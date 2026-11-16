@@ -192,6 +192,38 @@
       "density": "SPARSE_ALL"
     },
     {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "key",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "mkblog",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "key",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "ispublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "userid",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "notes",
       "queryScope": "COLLECTION",
       "fields": [

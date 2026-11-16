@@ -23,7 +23,7 @@ async function makeOutput(root, docId, { skip = [] } = {}) {
 const info = (docId) => ({
   docid: docId,
   ispublic: true,
-  ispublicsiteshow: true,
+  ispublicsiteshow: false,
   createdat: Number(docId),
   translations: {
     ja: { blogtitle: 'ja', blogseo: 'a,b', blogsummary: 's' },

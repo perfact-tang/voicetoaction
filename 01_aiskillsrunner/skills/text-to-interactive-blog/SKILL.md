@@ -80,7 +80,7 @@ mkdir -p "$DOC_DIR"
   "docid": "<DOCID>",
   "userid": "",
   "ispublic": true,
-  "ispublicsiteshow": true,
+  "ispublicsiteshow": false,
   "createdat": <DOCID 的数字值>,
   "translations": {
     "ja": { "blogtitle": "…", "blogsummary": "…", "blogseo": "AI動向, 業界ニュース, …", "blogmindmap": "# …\n\n## …\n- …", "mindmapurl": "", "coverImageMode": "mindmap" },

@@ -186,7 +186,7 @@ aiskillsrunner --skill text-to-interactive-blog --reffilepath ./stt.txt \
   --prompt "按中、日、英编写。"
 ```
 
-CMS 的 `applicationName` 使用 `text-to-interactive-blog`，对应 [ZIP 安装包](../dist/text-to-interactive-blog-2.0.0.zip)。技能说明和样例在 [技能目录](skills/text-to-interactive-blog/)。
+CMS 的 `applicationName` 使用 `text-to-interactive-blog`，对应 [ZIP 安装包](../dist/text-to-interactive-blog-2.0.1.zip)。技能说明和样例在 [技能目录](skills/text-to-interactive-blog/)。
 
 ## 内置 Skill：audio-to-note
 

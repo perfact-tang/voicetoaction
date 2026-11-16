@@ -2,7 +2,7 @@
 name: text-to-interactive-blog
 description: 将原稿、随手记录或语音转写重组为多语言（默认中/日/英）文章，并输出博客系统可直接发布的 Markdown 与可交互知识图谱数据。适用于发言顺序跳跃、观点分散或事实需要查证的素材。
 metadata:
-  version: "2.0.0"
+  version: "2.0.1"
 ---
 
 # 多语言文章 + 知识图谱（Markdown）
@@ -91,7 +91,10 @@ mkdir -p "$DOC_DIR"
 ```
 
 - 三个语言都必须有 `blogtitle` 与 `blogseo`；`translations` 这一层不能省。
-- `ispublicsiteshow` 决定是否出现在公开站（02_vibecodingjapanpublic），默认写 `true`。
+- `ispublicsiteshow` 决定是否出现在公开站（02_vibecodingjapanpublic）：**必须显式写 `false`**。
+  不要写 `true`，也不要省略这个字段——写成 `true` 或漏写都会让文章出现在公开站。
+  需要公开时由作者在博客编辑器里手动打开，skill 不做这件事。
+- `ispublic` 保持 `true`（文章进入自己的博客列表），与公开站展示是两件事。
 - `mindmapurl` 固定 `""`，`coverImageMode` 固定 `"mindmap"`（封面由博客编辑器用 `blogmindmap` 生成）。
 - 正文不要写进 JSON；正文由 Markdown 文件提供。
 
@@ -114,9 +117,11 @@ for f in zh.md ja.md en.md graph.json 文章信息.json article.json; do
 done
 grep -c 'content-' "$DOC_DIR/zh.md"
 grep -c '^<a id=' "$DOC_DIR/zh.md"
+node -e "const i=require(process.argv[1]);if(i.ispublicsiteshow!==false)throw new Error('ispublicsiteshow 必须为 false（false 才不在公开站展示）');console.log('visibility ok: ispublicsiteshow=false')" "$DOC_DIR/文章信息.json"
 node -e "const g=require(process.argv[1]);const ids=new Set(g.nodes.map(n=>n.id));if(!ids.size)throw new Error('no nodes');for(const n of g.nodes){if(!n.labels.zh||!n.labels.ja||!n.labels.en)throw new Error(n.id+' missing labels')}console.log('graph ok',g.nodes.length,g.edges.length)" "$DOC_DIR/graph.json"
 ```
 
+- `文章信息.json` 的 `ispublicsiteshow` 必须是 `false`；上面这条校验不通过就不要交付。
 - 三语 Markdown 的章节、段落、表格、引用、锚点必须一一对应。
 - 每个末级图谱节点的 `anchor` 必须能在 Markdown 里找到 `content-<anchor>`。
 - 正文里不能出现 `<script`、`<style`、`<iframe`、`index.html`、`mermaid.min.js`。
@@ -143,3 +148,4 @@ SKILL_RESULT: FAILED step=<read|article|info|render|check> reason=<一句话原�
 ```
 
 本技能交付本地文件；上传由后端完成后回填 `blogDocId`。
+后端发布时会再次强制 `ispublicsiteshow=false`，所以文章发布后**不会**出现在公开站（02_vibecodingjapanpublic）；这是预期行为，不要为了「让页面能打开」去改这个字段。

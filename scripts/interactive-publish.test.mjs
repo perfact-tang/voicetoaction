@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
+  INTERACTIVE_PUBLIC_SITE_SHOW,
   INTERACTIVE_REQUIRED_FILES,
   findInteractiveOutputs,
   pickInteractiveOutput,
@@ -100,4 +101,76 @@ test('publish refuses mismatched docid / missing metadata before touching Fireba
     publishInteractiveArticle({ dir, docId, userId: '', db }),
     /缺少作者 uid/
   );
+});
+
+/** 假的 vibecodingjapan-upblog：记录收到的 文章信息.json 与参数，不做任何网络写入。 */
+const FAKE_UPBLOG = `#!/usr/bin/env node
+import { readFileSync, writeFileSync } from 'node:fs';
+const argv = process.argv.slice(2);
+const flag = (name) => { const index = argv.indexOf(name); return index === -1 ? '' : argv[index + 1]; };
+const infoPath = flag('--info');
+const info = JSON.parse(readFileSync(infoPath, 'utf8'));
+writeFileSync(process.env.UPBLOG_CAPTURE, JSON.stringify({ info, infoPath, args: argv }));
+console.log('✔ mkfile/' + flag('--docid') + '-ja-test.md をアップロードしました');
+`;
+
+
+test('publishing forces ispublicsiteshow=false even when 文章信息.json asks for true', async (t) => {
+  assert.equal(INTERACTIVE_PUBLIC_SITE_SHOW, false);
+
+  const root = await mkdtemp(join(tmpdir(), 'interactive-publish-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const docId = '1794823698683';
+  const dir = await makeOutput(root, docId);
+  // skill 误把公开站展示打开的情况
+  await writeFile(join(dir, '文章信息.json'), JSON.stringify({ ...info(docId), ispublicsiteshow: true }));
+  await writeFile(join(dir, 'graph.json'), JSON.stringify(graph));
+
+  const bin = join(root, 'fake-upblog.mjs');
+  await writeFile(bin, FAKE_UPBLOG);
+  await chmod(bin, 0o755);
+  const capture = join(root, 'capture.json');
+  const previousCapture = process.env.UPBLOG_CAPTURE;
+  process.env.UPBLOG_CAPTURE = capture;
+  t.after(() => {
+    if (previousCapture === undefined) delete process.env.UPBLOG_CAPTURE;
+    else process.env.UPBLOG_CAPTURE = previousCapture;
+  });
+
+  const writes = [];
+  const stored = {};
+  const db = {
+    collection: () => ({
+      doc: () => ({
+        set: async (payload, options) => {
+          writes.push({ payload, options });
+          Object.assign(stored, payload);
+        },
+        get: async () => ({ exists: true, data: () => stored, get: (key) => stored[key] })
+      })
+    })
+  };
+
+  const published = await publishInteractiveArticle({ dir, docId, userId: 'uid', db, upblogBin: bin });
+  assert.equal(published.docId, docId);
+  assert.equal(published.blogPath, `/blog/${docId}`);
+  assert.equal(published.graphNodes, 2);
+  assert.equal(published.graphEdges, 0);
+
+  const captured = JSON.parse(await readFile(capture, 'utf8'));
+  assert.equal(captured.info.ispublicsiteshow, false, '上传 CLI 收到的必须是 false');
+  assert.equal(captured.info.ispublic, true, 'ispublic 不受影响');
+  assert.equal(captured.info.translations.ja.blogtitle, 'ja');
+  assert.notEqual(captured.infoPath, join(dir, '文章信息.json'), '不能直接把 skill 的元信息文件交给 CLI');
+  await assert.rejects(readFile(captured.infoPath, 'utf8'), /ENOENT/, '临时元信息文件用完要删掉');
+
+  const visibilityWrite = writes.find((write) => write.payload.ispublicsiteshow === false);
+  assert.ok(visibilityWrite, '发布后应再把 mkblog 文档的 ispublicsiteshow 写成 false');
+  assert.equal(visibilityWrite.options.merge, true);
+  assert.ok(visibilityWrite.payload.graph, '同一次写入应带上知识图谱');
+  assert.equal(stored.ispublicsiteshow, false);
+
+  // 本地产物保持原样，只有上传用的临时副本被改。
+  const localInfo = JSON.parse(await readFile(join(dir, '文章信息.json'), 'utf8'));
+  assert.equal(localInfo.ispublicsiteshow, true);
 });

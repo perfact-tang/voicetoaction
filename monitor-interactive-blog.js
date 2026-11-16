@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -9,7 +9,8 @@ import { join } from "node:path";
  * 这个 skill 只写本地文件（不调用上传工具），所以发布是后端的事：
  *   1. 在 `~/Documents/interactive-articles/<Unix 毫秒>/` 找到本次写出的完整产物；
  *   2. 调用一次 `vibecodingjapan-upblog` 写 Cloud Storage + Firestore(mkblog)；
- *   3. 把 `graph.json` 写进 `mkblog/<docid>.graph`，供两个博客系统渲染知识图谱。
+ *   3. 把 `graph.json` 写进 `mkblog/<docid>.graph`，供两个博客系统渲染知识图谱；
+ *   4. 公开站展示始终关闭（`ispublicsiteshow` 强制 false），需要公开时在编辑器里手动开启。
  *
  * 目录名就是文章 docid，因此 `文章信息.json` 的 docid 必须与目录名一致。
  */
@@ -17,6 +18,15 @@ import { join } from "node:path";
 export const INTERACTIVE_OUTPUT_FILES = ["zh.md", "ja.md", "en.md", "graph.json", "文章信息.json"];
 export const INTERACTIVE_ROOT = process.env.INTERACTIVE_BLOG_TMPDIR || join(homedir(), "Documents", "interactive-articles");
 export const INTERACTIVE_BLOG_SKILL = "text-to-interactive-blog";
+/**
+ * 公开站展示开关，固定 false。
+ *
+ * 公开站（02_vibecodingjapanpublic）只渲染 `ispublicsiteshow === true` 的文章，
+ * 所以这里不接受 skill 生成的 `文章信息.json` 里的值：无论它写 `true` 还是漏写，
+ * 发布时都强制写成 `false`，文章只留在后台编辑器里。
+ * 需要公开时由作者打开 `/editblog/<docid>` 手动开启展示。
+ */
+export const INTERACTIVE_PUBLIC_SITE_SHOW = false;
 /** 判定完成所需的文件（article.json 是可选的调试产物，不参与校验）。 */
 export const INTERACTIVE_REQUIRED_FILES = INTERACTIVE_OUTPUT_FILES;
 
@@ -191,29 +201,46 @@ export async function publishInteractiveArticle({
 
   const graph = validateGraph(await readJson(join(dir, "graph.json"), "graph.json"));
 
+  // 公开站展示必须关闭：不信任 skill 写出的 文章信息.json，上传前生成一份强制
+  // ispublicsiteshow=false 的临时副本交给 CLI，原始产物文件保持不动。
+  const uploadInfoDir = await mkdtemp(join(tmpdir(), "interactive-info-"));
+  const uploadInfoPath = join(uploadInfoDir, "文章信息.json");
+  await writeFile(
+    uploadInfoPath,
+    JSON.stringify({ ...info, ispublicsiteshow: INTERACTIVE_PUBLIC_SITE_SHOW }, null, 2)
+  );
+
   const args = [
     "--ja", join(dir, "ja.md"),
     "--zh", join(dir, "zh.md"),
     "--en", join(dir, "en.md"),
-    "--info", infoPath,
+    "--info", uploadInfoPath,
     "--docid", docId,
     "--uid", userId
   ];
   if (firebaseKeyPath) args.push("--key", firebaseKeyPath);
 
-  log(`上传文章 ${docId}（${upblogBin}）...`);
-  const result = await runCommand(upblogBin, args, { timeoutMs: 180_000 });
+  log(`上传文章 ${docId}（${upblogBin}，ispublicsiteshow=false 已强制）...`);
+  let result;
+  try {
+    result = await runCommand(upblogBin, args, { timeoutMs: 180_000 });
+  } finally {
+    await rm(uploadInfoDir, { recursive: true, force: true });
+  }
   if (result.code !== 0) {
     const reason = `${result.stderr || result.stdout || ""}`.trim().split("\n").slice(-8).join(" ").slice(0, 600);
     throw new Error(`vibecodingjapan-upblog 失败（exit ${result.code}）：${reason || "无输出"}`);
   }
 
   // 图谱不属于 upblog 的字段集合，单独写回同一条 mkblog 文档。
+  // 同一次 merge 再写一遍 ispublicsiteshow=false：即使 CLI 或别处刚写过 true，
+  // 也保证文章不会出现在公开站。
   await db.collection(collection).doc(docId).set(
     {
       graph,
       graphVersion: Number(graph.version) || 1,
-      graphUpdatedAt: Date.now()
+      graphUpdatedAt: Date.now(),
+      ispublicsiteshow: INTERACTIVE_PUBLIC_SITE_SHOW
     },
     { merge: true }
   );

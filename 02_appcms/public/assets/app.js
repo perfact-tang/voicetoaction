@@ -4,7 +4,7 @@
   var COLLECTION = 'allalservice';
   // Bumped together with the `assets/app.js?v=` query in every page. If a
   // browser shows an old build, this makes it obvious which one is running.
-  var BUILD = '2026-09-21-services-table';
+  var BUILD = '2026-11-16-skill-version-list-query';
   var LANGUAGES = ['zh', 'ja', 'en', 'ko'];
   var DEFAULT_STORAGE_BUCKET = 'vibecodingjapan.firebasestorage.app';
   var SKILL_MAX_BYTES = 26214400;
@@ -130,24 +130,34 @@
     return current ? 'V' + current : '';
   }
   function loadSkillVersions(serviceId) {
-    return skillVersionCollection(serviceId).get().then(function (snapshot) {
-      skillVersions = snapshot.docs.map(function (doc) {
-        var data = doc.data() || {};
-        return {
-          id: doc.id,
-          legacy: false,
-          // The rules constrain the document ID to 1..999999, so it is the
-          // authoritative version number; the `version` field mirrors it.
-          version: skillVersionNumber(doc.id) || skillVersionNumber(data.version),
-          zipUrl: data.zipUrl || '',
-          storagePath: data.storagePath || '',
-          fileName: data.fileName || '',
-          fileSize: Number(data.fileSize) || 0,
-          createdAt: data.createdAt || null
-        };
-      }).filter(function (row) { return row.version > 0; }).sort(function (a, b) { return b.version - a.version; });
-      return skillVersions;
-    });
+    // firestore.rules reads versions with `owns(resource.data.userUid)`, i.e.
+    // `resource.data.userUid == request.auth.uid`. Security rules are not
+    // filters: a list query is rejected as a whole unless it carries the same
+    // constraint, even when every version actually belongs to the caller.
+    // Keep this where() in sync with the rule, otherwise the version table
+    // fails with "permission-denied" while the single service document still
+    // loads fine.
+    return skillVersionCollection(serviceId)
+      .where('userUid', '==', currentUser.uid)
+      .get()
+      .then(function (snapshot) {
+        skillVersions = snapshot.docs.map(function (doc) {
+          var data = doc.data() || {};
+          return {
+            id: doc.id,
+            legacy: false,
+            // The rules constrain the document ID to 1..999999, so it is the
+            // authoritative version number; the `version` field mirrors it.
+            version: skillVersionNumber(doc.id) || skillVersionNumber(data.version),
+            zipUrl: data.zipUrl || '',
+            storagePath: data.storagePath || '',
+            fileName: data.fileName || '',
+            fileSize: Number(data.fileSize) || 0,
+            createdAt: data.createdAt || null
+          };
+        }).filter(function (row) { return row.version > 0; }).sort(function (a, b) { return b.version - a.version; });
+        return skillVersions;
+      });
   }
   function skillVersionPayload(version, uploaded) {
     return {

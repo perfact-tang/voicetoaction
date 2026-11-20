@@ -11,6 +11,7 @@ import { VIDEO } from "./data/videoConfig";
 import { TIMING } from "./data/timing";
 import { Scenes, SCENE_VISUALS } from "./scenes";
 import { SketchDefs } from "./sketchDefs";
+import { P } from "./whiteboard/kit";
 
 /** Guard: catch a script.json scene whose `visual` has no illustration. */
 const assertVisualsExist = () => {
@@ -30,7 +31,7 @@ export const Explainer: React.FC = () => {
   assertVisualsExist();
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#f7f2e7" }}>
+    <AbsoluteFill style={{ backgroundColor: P.paper }}>
       <SketchDefs />
       {VIDEO.hasAudio ? <Audio src={staticFile(VIDEO.audioTrack)} /> : null}
       {TIMING.scenes.map((scene) => {
@@ -54,6 +55,10 @@ export const Explainer: React.FC = () => {
               durationInFrames={scene.durationInFrames}
               lines={lines}
               seed={scene.index + 1}
+              sceneIndex={scene.index}
+              totalScenes={TIMING.scenes.length}
+              globalStartFrame={scene.startFrame}
+              totalDurationInFrames={TIMING.durationInFrames}
             />
           </Sequence>
         );

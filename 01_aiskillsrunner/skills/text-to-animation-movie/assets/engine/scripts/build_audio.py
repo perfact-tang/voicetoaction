@@ -68,8 +68,8 @@ SCENE_LEAD_FRAMES = 10      # scene starts shortly before its line is spoken
 SILENCE_NOISE_DB = -45      # silencedetect threshold for trimming / line boundaries
 SILENCE_MIN_S = 0.10
 
-SCENE_MAX_SECONDS = 18.0    # guard rail against runaway scenes
-TOTAL_MAX_SECONDS = 240.0   # guard rail against a runaway cut
+SCENE_MAX_SECONDS = 24.0    # guard rail against runaway scenes
+TOTAL_MAX_SECONDS = 360.0   # guard rail against a runaway cut
 
 RATE = 24000                # sample rate for generated audio
 MAX_CLIP_SECONDS = 20.0     # silent fallback clips are capped at this
@@ -188,10 +188,16 @@ def silence_segments(path: Path) -> list[tuple[float, float]]:
     return list(zip(starts, ends))
 
 
+def strip_markup(text: str) -> str:
+    """Remove visual highlight markers (`**keyword**`) before TTS or LRC export."""
+    return re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+
+
 def han_len(text: str) -> int:
     """Rough 'how long does this take to say' weight."""
-    return len(re.findall(r"[\u4e00-\u9fff]", text)) + len(
-        re.findall(r"[A-Za-z0-9]+", text)
+    clean = strip_markup(text)
+    return len(re.findall(r"[\u4e00-\u9fff]", clean)) + len(
+        re.findall(r"[A-Za-z0-9]+", clean)
     )
 
 
@@ -855,7 +861,12 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
     units: list[dict] = []
     for scene in script.scenes:
         scene_lines = [
-            {"id": line_id, "text": text, "chars": han_len(text)}
+            {
+                "id": line_id,
+                "text": text,
+                "spoken": strip_markup(text),
+                "chars": han_len(text),
+            }
             for line_id, text in scene["lines"]
         ]
         units.append(
@@ -864,7 +875,7 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
                 "sceneId": scene["id"],
                 "visual": scene["visual"],
                 "lines": scene_lines,
-                "text": join_texts([line["text"] for line in scene_lines]),
+                "text": join_texts([line["spoken"] for line in scene_lines]),
             }
         )
 
@@ -886,7 +897,7 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
             # say / espeak 的这个钩子是空的，仍然逐场景合成。
             tts.prepare(
                 [(unit["id"], unit["text"]) for unit in units]
-                + [(line["id"], line["text"]) for line in measure_lines],
+                + [(line["id"], line["spoken"]) for line in measure_lines],
                 work,
                 script.voice,
                 script.rate,
@@ -937,7 +948,7 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
         if tts is not None and len(unit["lines"]) > 1:
             for line in unit["lines"][:-1]:
                 line_raw = work / f"{line['id']}.wav"
-                tts.render(line["text"], line_raw, script.voice, script.rate)
+                tts.render(line["spoken"], line_raw, script.voice, script.rate)
                 line_trim = work / f"{line['id']}.trim.wav"
                 trim_silence(line_raw, line_trim)
                 measured_ms.append(probe_duration_ms(line_trim))
@@ -1218,7 +1229,7 @@ def build(script: Script, force_no_audio: bool, preferred_tts: str) -> int:
         "",
     ]
     for clip in clips:
-        lrc.append(f"{stamp(clip['startMs'])}{clip['text']}")
+        lrc.append(f"{stamp(clip['startMs'])}{strip_markup(clip['text'])}")
     script.lrc.write_text("\n".join(lrc) + "\n", encoding="utf-8")
 
     sheet = [
